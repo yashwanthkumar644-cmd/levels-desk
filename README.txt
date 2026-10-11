@@ -2,7 +2,7 @@ LEVELS DESK - phone app
 =======================
 
 A phone app that reads a stock chart screenshot and shows support and resistance
-levels, a BUY / SELL / WAIT suggestion, a summary and the real 5-year track record.
+levels, a BUY / WAIT suggestion, a summary and the real 5-year track record.
 It runs entirely on the phone: no account, no password, no fees, and screenshots are
 never uploaded. Works on Android and iPhone.
 
@@ -28,23 +28,40 @@ ON THE PHONE (your aunt, once)
 
 EVERY DAY
 ---------
-1. Take a screenshot of the chart in your trading app (Kite, Upstox, TradingView...).
-2. Open Levels Desk, tap "Upload a chart photo" and pick the screenshot.
-3. In 5 to 15 seconds you see the decision, the summary, the levels and a rebuilt
-   chart to compare with yours.
+1. Set "Nifty trend today" at the top: Up if Nifty is above its 50-day average, Down if
+   below. (Or upload a Nifty chart screenshot and the app sets it for you.)
+2. Take a screenshot of a stock chart in your trading app (Kite, Upstox, TradingView...).
+   Show at least 55 candles.
+3. Open Levels Desk, tap "Upload a chart photo" and pick the screenshot.
+4. In 5 to 15 seconds you see BUY or WAIT, the three conditions with ticks or crosses,
+   the plan, the levels and a rebuilt chart to compare with yours.
 
 
 FOR A GOOD READING
 ------------------
 - A candlestick chart with the normal green and red colours.
 - The price numbers on the right side of the chart must be in the screenshot.
-- At least 30 candles.
 - If the stock name isn't picked up, type it in the "Symbol" box on the result.
 - Compare the rebuilt chart with your chart; if it doesn't match, take a clearer screenshot.
 
 
+HOW THE DECISION WORKS
+----------------------
+BUY ("pullback buy") only when all three are true:
+  1. The stock is in an uptrend (above its 50-day average; 20-day average above 50-day).
+  2. It has just dipped sharply (RSI(2) below 10).
+  3. Nifty is in an uptrend (above its 50-day average).
+Then: buy at the next open, sell on the bounce (usually 2 to 5 days, around the
+"Sell around" price), safety stop 3x the daily range below entry, exit after 15 days
+if nothing happens. Otherwise the app says WAIT. It never says SELL: no sell rule
+held up in testing.
+
+
 PLEASE NOTE
 -----------
-This is a learning tool, not investment advice. In a 5-year test on real NSE data,
-its BUY/SELL signals did no better than chance. Use it to see where the important
-price levels are, not to decide trades on its own.
+This is a learning tool, not investment advice. On 5 years of real NSE data (72 F&O
+stocks) the BUY rule won about 2 trades in 3 (68% of 1,012 trades). On 2025-26, data
+the settings were never tuned on, it won 66% and averaged +0.13% per trade after
+costs, against -0.28% for random trades. Wins are small and frequent; losses are
+rarer but bigger (worst -15%). 2026 so far has been weaker. Never trade money you
+cannot afford to lose.

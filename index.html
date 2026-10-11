@@ -163,6 +163,18 @@ textarea { min-height: 120px; }
 .phonepanel { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; }
 .phonepanel p { margin: 0; color: var(--muted); }
 .phonepanel img { background: #fff; border-radius: 8px; padding: 4px; justify-self: start; max-width: 100%; height: auto; }
+.niftybar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; font-size: 14px; }
+.niftybar .muted { font-size: 13px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 8px 18px; }
+.seg button[aria-pressed="true"][data-nifty="up"] { background: var(--up); color: var(--panel); }
+.seg button[aria-pressed="true"][data-nifty="down"] { background: var(--down); color: var(--panel); }
+.niftybar.unset { border-color: var(--warn); }
+.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 14px; }
+.checks li { display: grid; grid-template-columns: 22px 1fr; gap: 6px; align-items: start; }
+.checks li span { font-weight: 800; text-align: center; border-radius: 6px; }
+.checks li.ok span { color: var(--up); background: var(--up-soft); }
+.checks li.no span { color: var(--warn); background: var(--warn-soft); }
 .shotstatus { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .shotimg { width: 100%; height: 100%; object-fit: contain; display: block; }
 .banner { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 600; }
@@ -200,6 +212,12 @@ textarea { min-height: 120px; }
       <strong>Upload a chart photo</strong>
       <span id="photoHint">Getting ready…</span>
     </label>
+    <div class="niftybar" id="niftyBar">
+      <div><b>Nifty trend today</b><br><span id="niftyNote" class="muted"></span></div>
+      <div class="seg" role="group" aria-label="Nifty trend today">
+        <button type="button" data-nifty="up">Up</button><button type="button" data-nifty="down">Down</button>
+      </div>
+    </div>
     <div class="banner shotstatus" id="shotStatus" hidden><span id="shotMsg"></span><button type="button" id="shotStop">Stop</button></div>
     <section class="panel verdict" id="verdict"></section>
 
@@ -267,6 +285,7 @@ async function handleBarFiles(files) {
     } catch (e) { next = { ...next, errors: [...next.errors, `${f.name}: ${e.message}`] }; }
   }
   setState(next);
+  next.stocks.forEach((st) => niftyFromBars(st.symbol, st.bars));
 }
 async function handleOCFile(file) {
   const st = state.stocks[state.active];
@@ -314,8 +333,7 @@ function loadSamples() {
 }
 
 /* ---------- screenshots (read by Claude) ---------- */
-const REAL = {"period":"Oct 2021 – Oct 2026","stocksCount":72,"overall":{"n":5280,"win":0.264,"loss":0.69,"net":-0.061,"sup":0.514,"res":0.494},"randomLevelHold":0.51,"setups":{"Buy on dip to support":{"n":618,"win":0.215,"loss":0.756,"net":-0.101},"Buy at support":{"n":1035,"win":0.327,"loss":0.636,"net":0.007},"Breakout buy":{"n":1540,"win":0.293,"loss":0.656,"net":0.068},"Breakdown sell":{"n":898,"win":0.202,"loss":0.72,"net":-0.216},"Sell on rise to resistance":{"n":477,"win":0.21,"loss":0.776,"net":-0.154},"Sell at resistance":{"n":712,"win":0.265,"loss":0.692,"net":-0.146}},"stocks":{"ADANIENT":{"n":78,"win":0.282,"loss":0.692,"net":-0.052,"sup":0.471,"res":0.507},"ADANIPORTS":{"n":72,"win":0.264,"loss":0.639,"net":0.068,"sup":0.502,"res":0.502},"AMBUJACEM":{"n":82,"win":0.293,"loss":0.659,"net":0.101,"sup":0.5,"res":0.556},"APOLLOHOSP":{"n":65,"win":0.323,"loss":0.585,"net":0.307,"sup":0.527,"res":0.509},"ASIANPAINT":{"n":73,"win":0.26,"loss":0.644,"net":0.004,"sup":0.563,"res":0.517},"AUROPHARMA":{"n":77,"win":0.195,"loss":0.766,"net":-0.279,"sup":0.537,"res":0.447},"AXISBANK":{"n":68,"win":0.279,"loss":0.662,"net":0.019,"sup":0.535,"res":0.403},"BAJAJFINSV":{"n":65,"win":0.138,"loss":0.785,"net":-0.227,"sup":0.52,"res":0.519},"BAJAJ-AUTO":{"n":83,"win":0.325,"loss":0.639,"net":0.094,"sup":0.549,"res":0.445},"BAJFINANCE":{"n":79,"win":0.304,"loss":0.658,"net":0.131,"sup":0.421,"res":0.494},"BANKBARODA":{"n":77,"win":0.247,"loss":0.701,"net":-0.125,"sup":0.543,"res":0.44},"BEL":{"n":71,"win":0.296,"loss":0.676,"net":0.032,"sup":0.583,"res":0.492},"BHARTIARTL":{"n":69,"win":0.232,"loss":0.71,"net":-0.105,"sup":0.508,"res":0.464},"BIOCON":{"n":66,"win":0.288,"loss":0.652,"net":0.064,"sup":0.488,"res":0.531},"BPCL":{"n":76,"win":0.289,"loss":0.711,"net":-0.009,"sup":0.49,"res":0.497},"BRITANNIA":{"n":71,"win":0.225,"loss":0.704,"net":-0.166,"sup":0.601,"res":0.57},"CANBK":{"n":83,"win":0.301,"loss":0.675,"net":0,"sup":0.465,"res":0.442},"CHOLAFIN":{"n":75,"win":0.293,"loss":0.667,"net":0.003,"sup":0.559,"res":0.461},"CIPLA":{"n":72,"win":0.167,"loss":0.806,"net":-0.462,"sup":0.578,"res":0.532},"COALINDIA":{"n":75,"win":0.227,"loss":0.707,"net":-0.172,"sup":0.533,"res":0.487},"DABUR":{"n":67,"win":0.179,"loss":0.821,"net":-0.477,"sup":0.498,"res":0.495},"DIVISLAB":{"n":65,"win":0.231,"loss":0.677,"net":-0.089,"sup":0.489,"res":0.532},"DLF":{"n":84,"win":0.31,"loss":0.679,"net":0.121,"sup":0.448,"res":0.5},"DRREDDY":{"n":73,"win":0.219,"loss":0.767,"net":-0.355,"sup":0.516,"res":0.502},"EICHERMOT":{"n":71,"win":0.225,"loss":0.718,"net":-0.202,"sup":0.547,"res":0.474},"GAIL":{"n":72,"win":0.264,"loss":0.708,"net":-0.143,"sup":0.469,"res":0.468},"GODREJCP":{"n":72,"win":0.264,"loss":0.667,"net":-0.012,"sup":0.556,"res":0.539},"GRASIM":{"n":74,"win":0.203,"loss":0.743,"net":-0.205,"sup":0.533,"res":0.493},"HAL":{"n":85,"win":0.353,"loss":0.565,"net":0.241,"sup":0.518,"res":0.513},"HAVELLS":{"n":72,"win":0.278,"loss":0.681,"net":-0.005,"sup":0.49,"res":0.512},"HCLTECH":{"n":77,"win":0.338,"loss":0.597,"net":0.279,"sup":0.525,"res":0.5},"HDFCBANK":{"n":74,"win":0.324,"loss":0.608,"net":0.211,"sup":0.453,"res":0.485},"HDFCLIFE":{"n":73,"win":0.219,"loss":0.753,"net":-0.164,"sup":0.493,"res":0.547},"HEROMOTOCO":{"n":66,"win":0.379,"loss":0.606,"net":0.186,"sup":0.493,"res":0.473},"HINDALCO":{"n":76,"win":0.289,"loss":0.632,"net":0.116,"sup":0.557,"res":0.451},"HINDUNILVR":{"n":80,"win":0.238,"loss":0.688,"net":-0.07,"sup":0.51,"res":0.57},"ICICIBANK":{"n":76,"win":0.25,"loss":0.724,"net":-0.177,"sup":0.522,"res":0.497},"INDUSINDBK":{"n":78,"win":0.269,"loss":0.692,"net":-0.054,"sup":0.498,"res":0.468},"INFY":{"n":81,"win":0.247,"loss":0.704,"net":-0.113,"sup":0.409,"res":0.419},"IOC":{"n":66,"win":0.258,"loss":0.712,"net":-0.083,"sup":0.512,"res":0.485},"ITC":{"n":72,"win":0.292,"loss":0.681,"net":0.034,"sup":0.483,"res":0.473},"JSWSTEEL":{"n":71,"win":0.183,"loss":0.732,"net":-0.285,"sup":0.56,"res":0.478},"KOTAKBANK":{"n":57,"win":0.211,"loss":0.772,"net":-0.318,"sup":0.508,"res":0.486},"LT":{"n":73,"win":0.301,"loss":0.685,"net":0.06,"sup":0.479,"res":0.46},"LUPIN":{"n":72,"win":0.278,"loss":0.667,"net":-0.045,"sup":0.58,"res":0.547},"MARUTI":{"n":71,"win":0.338,"loss":0.62,"net":0.199,"sup":0.506,"res":0.527},"MUTHOOTFIN":{"n":71,"win":0.254,"loss":0.732,"net":-0.165,"sup":0.543,"res":0.508},"M&M":{"n":79,"win":0.278,"loss":0.671,"net":-0.025,"sup":0.481,"res":0.474},"NESTLEIND":{"n":70,"win":0.243,"loss":0.714,"net":-0.092,"sup":0.583,"res":0.504},"NTPC":{"n":76,"win":0.289,"loss":0.697,"net":-0.017,"sup":0.545,"res":0.519},"ONGC":{"n":80,"win":0.3,"loss":0.688,"net":-0.048,"sup":0.468,"res":0.508},"PIDILITIND":{"n":67,"win":0.269,"loss":0.672,"net":0.007,"sup":0.529,"res":0.555},"PNB":{"n":73,"win":0.329,"loss":0.658,"net":0.197,"sup":0.488,"res":0.44},"POWERGRID":{"n":65,"win":0.262,"loss":0.708,"net":-0.077,"sup":0.54,"res":0.518},"RELIANCE":{"n":74,"win":0.311,"loss":0.635,"net":-0.001,"sup":0.393,"res":0.438},"SAIL":{"n":86,"win":0.256,"loss":0.709,"net":-0.071,"sup":0.577,"res":0.491},"SBILIFE":{"n":74,"win":0.203,"loss":0.757,"net":-0.334,"sup":0.559,"res":0.518},"SBIN":{"n":71,"win":0.296,"loss":0.662,"net":-0.019,"sup":0.455,"res":0.52},"SHRIRAMFIN":{"n":73,"win":0.26,"loss":0.712,"net":-0.179,"sup":0.532,"res":0.47},"SIEMENS":{"n":64,"win":0.219,"loss":0.688,"net":0.022,"sup":0.547,"res":0.51},"SUNPHARMA":{"n":75,"win":0.32,"loss":0.667,"net":0.029,"sup":0.548,"res":0.505},"TATACONSUM":{"n":64,"win":0.219,"loss":0.734,"net":-0.207,"sup":0.589,"res":0.517},"TATAPOWER":{"n":80,"win":0.238,"loss":0.725,"net":-0.173,"sup":0.47,"res":0.515},"TATASTEEL":{"n":78,"win":0.167,"loss":0.782,"net":-0.418,"sup":0.521,"res":0.526},"TCS":{"n":69,"win":0.232,"loss":0.725,"net":-0.228,"sup":0.481,"res":0.476},"TECHM":{"n":72,"win":0.139,"loss":0.778,"net":-0.427,"sup":0.487,"res":0.485},"TITAN":{"n":69,"win":0.29,"loss":0.681,"net":-0.086,"sup":0.49,"res":0.479},"TRENT":{"n":76,"win":0.303,"loss":0.618,"net":0.138,"sup":0.483,"res":0.487},"TVSMOTOR":{"n":73,"win":0.274,"loss":0.671,"net":-0.115,"sup":0.557,"res":0.479},"ULTRACEMCO":{"n":82,"win":0.207,"loss":0.756,"net":-0.351,"sup":0.495,"res":0.486},"VEDL":{"n":71,"win":0.225,"loss":0.676,"net":-0.009,"sup":0.529,"res":0.434},"WIPRO":{"n":73,"win":0.37,"loss":0.603,"net":0.24,"sup":0.478,"res":0.472},"BANKNIFTY":{"n":80,"win":0.3,"loss":0.675,"net":-0.071,"sup":0.464,"res":0.404},"NIFTY":{"n":81,"win":0.272,"loss":0.728,"net":-0.217,"sup":0.402,"res":0.378}}};
-function showStatus(msg) { $("#shotMsg").textContent = msg; $("#shotStatus").hidden = false; }
+const RULE_STATS = {"rule":"Pullback buy","period":"Oct 2021 \u2013 Oct 2026","stocksCount":72,"all":{"n":1012,"win":0.684,"avg":0.476,"avgWin":2.16,"avgLoss":-3.17,"worst":-15.4},"train":{"n":710,"win":0.694,"avg":0.624,"avgWin":2.33,"avgLoss":-3.26,"worst":-9.7},"test":{"n":302,"win":0.659,"avg":0.129,"avgWin":1.75,"avgLoss":-3.0,"worst":-15.4},"randomTest":{"n":298,"win":0.483,"avg":-0.283,"avgWin":1.96,"avgLoss":-2.38,"worst":-14.9},"years":{"2022":{"n":133,"win":0.662,"avg":0.235,"avgWin":2.31,"avgLoss":-3.82,"worst":-8.6},"2023":{"n":241,"win":0.743,"avg":0.856,"avgWin":2.0,"avgLoss":-2.45,"worst":-9.7},"2024":{"n":336,"win":0.673,"avg":0.611,"avgWin":2.6,"avgLoss":-3.48,"worst":-9.4},"2025":{"n":244,"win":0.684,"avg":0.223,"avgWin":1.71,"avgLoss":-3.0,"worst":-15.4},"2026":{"n":58,"win":0.552,"avg":-0.269,"avgWin":1.94,"avgLoss":-2.99,"worst":-11.1}},"medianDays":4.0,"stocks":{"ADANIENT":{"n":12,"win":0.75,"avg":1.638,"avgWin":3.12,"avgLoss":-2.8,"worst":-7.7},"ADANIPORTS":{"n":13,"win":0.615,"avg":0.7,"avgWin":3.27,"avgLoss":-3.41,"worst":-7.7},"AMBUJACEM":{"n":16,"win":0.688,"avg":0.68,"avgWin":2.6,"avgLoss":-3.55,"worst":-7.8},"APOLLOHOSP":{"n":17,"win":0.765,"avg":1.006,"avgWin":2.21,"avgLoss":-2.89,"worst":-7.1},"ASIANPAINT":{"n":15,"win":0.533,"avg":-0.639,"avgWin":1.59,"avgLoss":-3.19,"worst":-7.4},"AUROPHARMA":{"n":18,"win":0.667,"avg":1.513,"avgWin":2.67,"avgLoss":-0.79,"worst":-1.1},"AXISBANK":{"n":13,"win":0.692,"avg":0.084,"avgWin":1.72,"avgLoss":-3.6,"worst":-7.0},"BAJAJ-AUTO":{"n":13,"win":0.769,"avg":0.107,"avgWin":1.77,"avgLoss":-5.45,"worst":-7.6},"BAJAJFINSV":{"n":9,"win":0.667,"avg":0.225,"avgWin":1.96,"avgLoss":-3.25,"worst":-6.0},"BAJFINANCE":{"n":11,"win":0.636,"avg":-1.001,"avgWin":1.51,"avgLoss":-5.39,"worst":-7.6},"BANKBARODA":{"n":13,"win":0.462,"avg":-0.51,"avgWin":2.17,"avgLoss":-2.81,"worst":-7.2},"BEL":{"n":12,"win":0.5,"avg":-1.819,"avgWin":2.45,"avgLoss":-6.09,"worst":-11.4},"BHARTIARTL":{"n":20,"win":0.8,"avg":1.216,"avgWin":1.59,"avgLoss":-0.26,"worst":-0.5},"BIOCON":{"n":15,"win":0.667,"avg":0.23,"avgWin":2.23,"avgLoss":-3.77,"worst":-9.1},"BPCL":{"n":18,"win":0.611,"avg":-0.175,"avgWin":1.71,"avgLoss":-3.14,"worst":-7.8},"BRITANNIA":{"n":18,"win":0.889,"avg":1.057,"avgWin":1.67,"avgLoss":-3.88,"worst":-5.8},"CANBK":{"n":19,"win":0.842,"avg":1.356,"avgWin":2.66,"avgLoss":-5.59,"worst":-8.7},"CHOLAFIN":{"n":16,"win":0.625,"avg":0.189,"avgWin":2.62,"avgLoss":-3.86,"worst":-7.3},"CIPLA":{"n":15,"win":0.533,"avg":0.053,"avgWin":2.65,"avgLoss":-2.91,"worst":-7.0},"COALINDIA":{"n":12,"win":0.75,"avg":0.264,"avgWin":1.2,"avgLoss":-2.55,"worst":-7.4},"DABUR":{"n":9,"win":0.889,"avg":1.696,"avgWin":2.03,"avgLoss":-1.01,"worst":-1.0},"DIVISLAB":{"n":12,"win":0.75,"avg":1.108,"avgWin":2.69,"avgLoss":-3.63,"worst":-7.7},"DLF":{"n":11,"win":0.636,"avg":-0.242,"avgWin":1.54,"avgLoss":-3.37,"worst":-6.4},"DRREDDY":{"n":11,"win":0.727,"avg":0.742,"avgWin":1.91,"avgLoss":-2.36,"worst":-4.6},"EICHERMOT":{"n":15,"win":0.6,"avg":0.32,"avgWin":1.78,"avgLoss":-1.86,"worst":-7.2},"GAIL":{"n":15,"win":0.933,"avg":2.493,"avgWin":2.83,"avgLoss":-2.28,"worst":-2.3},"GODREJCP":{"n":11,"win":1.0,"avg":2.627,"avgWin":2.63,"avgLoss":0,"worst":1.1},"GRASIM":{"n":15,"win":0.4,"avg":-0.171,"avgWin":2.07,"avgLoss":-1.67,"worst":-3.9},"HAL":{"n":15,"win":0.733,"avg":0.889,"avgWin":2.76,"avgLoss":-4.26,"worst":-9.0},"HAVELLS":{"n":16,"win":0.625,"avg":-1.122,"avgWin":1.78,"avgLoss":-5.96,"worst":-8.8},"HCLTECH":{"n":15,"win":0.6,"avg":0.089,"avgWin":2.13,"avgLoss":-2.97,"worst":-5.6},"HDFCBANK":{"n":12,"win":0.667,"avg":0.349,"avgWin":1.7,"avgLoss":-2.36,"worst":-4.4},"HDFCLIFE":{"n":12,"win":0.583,"avg":0.163,"avgWin":2.11,"avgLoss":-2.56,"worst":-6.1},"HEROMOTOCO":{"n":17,"win":0.706,"avg":-0.039,"avgWin":1.88,"avgLoss":-4.65,"worst":-7.6},"HINDALCO":{"n":13,"win":0.692,"avg":1.038,"avgWin":2.92,"avgLoss":-3.2,"worst":-7.5},"HINDUNILVR":{"n":12,"win":0.667,"avg":0.307,"avgWin":1.69,"avgLoss":-2.47,"worst":-6.7},"ICICIBANK":{"n":12,"win":0.833,"avg":0.678,"avgWin":1.41,"avgLoss":-2.98,"worst":-4.7},"INDUSINDBK":{"n":14,"win":0.786,"avg":0.572,"avgWin":1.96,"avgLoss":-4.51,"worst":-6.4},"INFY":{"n":14,"win":0.786,"avg":0.343,"avgWin":1.54,"avgLoss":-4.05,"worst":-6.3},"IOC":{"n":8,"win":0.5,"avg":0.202,"avgWin":2.38,"avgLoss":-1.98,"worst":-2.6},"ITC":{"n":11,"win":0.545,"avg":-0.149,"avgWin":0.89,"avgLoss":-1.4,"worst":-2.3},"JSWSTEEL":{"n":15,"win":0.733,"avg":-0.502,"avgWin":1.63,"avgLoss":-6.36,"worst":-12.3},"KOTAKBANK":{"n":13,"win":0.462,"avg":-0.886,"avgWin":1.77,"avgLoss":-3.16,"worst":-6.7},"LT":{"n":14,"win":0.5,"avg":-0.508,"avgWin":1.91,"avgLoss":-2.92,"worst":-6.0},"LUPIN":{"n":15,"win":0.933,"avg":1.336,"avgWin":1.59,"avgLoss":-2.18,"worst":-2.2},"M&M":{"n":14,"win":0.714,"avg":1.155,"avgWin":2.81,"avgLoss":-2.97,"worst":-6.9},"MARUTI":{"n":15,"win":0.6,"avg":0.189,"avgWin":1.69,"avgLoss":-2.06,"worst":-6.2},"MUTHOOTFIN":{"n":14,"win":0.714,"avg":1.68,"avgWin":2.77,"avgLoss":-1.04,"worst":-2.5},"NESTLEIND":{"n":15,"win":0.4,"avg":-0.428,"avgWin":1.36,"avgLoss":-1.62,"worst":-3.0},"NTPC":{"n":14,"win":0.786,"avg":1.546,"avgWin":2.43,"avgLoss":-1.69,"worst":-3.2},"ONGC":{"n":16,"win":0.688,"avg":0.535,"avgWin":2.37,"avgLoss":-3.5,"worst":-7.3},"PIDILITIND":{"n":10,"win":0.7,"avg":-0.224,"avgWin":1.44,"avgLoss":-4.11,"worst":-5.8},"PNB":{"n":18,"win":0.556,"avg":0.682,"avgWin":3.95,"avgLoss":-3.4,"worst":-9.7},"POWERGRID":{"n":9,"win":0.444,"avg":-0.942,"avgWin":4.23,"avgLoss":-5.08,"worst":-9.4},"RELIANCE":{"n":17,"win":0.706,"avg":0.184,"avgWin":1.79,"avgLoss":-3.67,"worst":-9.3},"SAIL":{"n":15,"win":0.733,"avg":1.288,"avgWin":3.47,"avgLoss":-4.7,"worst":-7.8},"SBILIFE":{"n":17,"win":0.706,"avg":-0.247,"avgWin":1.53,"avgLoss":-4.52,"worst":-7.4},"SBIN":{"n":16,"win":0.625,"avg":0.349,"avgWin":1.88,"avgLoss":-2.2,"worst":-5.5},"SHRIRAMFIN":{"n":18,"win":0.833,"avg":2.088,"avgWin":2.78,"avgLoss":-1.35,"worst":-3.2},"SIEMENS":{"n":13,"win":0.538,"avg":-0.504,"avgWin":2.73,"avgLoss":-4.27,"worst":-8.4},"SUNPHARMA":{"n":12,"win":0.5,"avg":-1.093,"avgWin":1.21,"avgLoss":-3.4,"worst":-7.3},"TATACONSUM":{"n":11,"win":0.818,"avg":1.316,"avgWin":1.71,"avgLoss":-0.45,"worst":-0.5},"TATAPOWER":{"n":12,"win":0.917,"avg":1.646,"avgWin":2.58,"avgLoss":-8.58,"worst":-8.6},"TATASTEEL":{"n":21,"win":0.619,"avg":-0.082,"avgWin":2.4,"avgLoss":-4.12,"worst":-7.9},"TCS":{"n":16,"win":0.75,"avg":0.603,"avgWin":1.77,"avgLoss":-2.91,"worst":-5.2},"TECHM":{"n":15,"win":0.533,"avg":-0.819,"avgWin":1.28,"avgLoss":-3.22,"worst":-11.1},"TITAN":{"n":13,"win":0.692,"avg":0.498,"avgWin":1.64,"avgLoss":-2.07,"worst":-4.6},"TRENT":{"n":10,"win":0.8,"avg":2.938,"avgWin":4.24,"avgLoss":-2.26,"worst":-4.4},"TVSMOTOR":{"n":16,"win":0.75,"avg":1.519,"avgWin":2.34,"avgLoss":-0.94,"worst":-2.8},"ULTRACEMCO":{"n":17,"win":0.706,"avg":0.793,"avgWin":1.64,"avgLoss":-1.24,"worst":-2.3},"VEDL":{"n":14,"win":0.929,"avg":1.348,"avgWin":2.64,"avgLoss":-15.39,"worst":-15.4},"WIPRO":{"n":12,"win":0.583,"avg":-0.233,"avgWin":1.5,"avgLoss":-2.66,"worst":-4.6}}};
 let shotCtl = null;
 const PHOTO_ERRORS = {
   no_axis: "Couldn't read the price scale. Keep the price numbers on the right side of the chart in the screenshot.",
@@ -326,7 +344,7 @@ const PHOTO_ERRORS = {
 };
 const photoError = (e) => PHOTO_ERRORS[e?.code] || "Something went wrong while reading the chart. Try a clearer screenshot.";
 function showStatus(msg) { $("#shotMsg").textContent = msg; $("#shotStatus").hidden = false; }
-const KNOWN = Object.keys(REAL.stocks);
+const KNOWN = [...Object.keys(RULE_STATS.stocks), "NIFTY", "BANKNIFTY"];
 const STEP_TEXT = { "reading price scale": "Reading the price scale…", "reading chart text": "Reading the chart labels…", "finding candles": "Finding the candles…" };
 function progressText(m) {
   if (STEP_TEXT[m?.status]) return STEP_TEXT[m.status];
@@ -337,6 +355,40 @@ async function readLocal(file) {
   return ChartReader.read(file, KNOWN, (m) => { const t = progressText(m); if (t) showStatus(t); });
 }
 // Screenshots carry no dates; give the bars consecutive weekdays ending today so the engine can run.
+const NIFTY_KEY = "levelsdesk.nifty";
+const todayStr = () => new Date().toLocaleDateString("en-CA");
+function loadNifty() {
+  try { const v = JSON.parse(localStorage.getItem(NIFTY_KEY) || "null"); return v && typeof v.up === "boolean" && v.day ? v : null; }
+  catch { return null; }
+}
+// A trend setting older than 3 days is treated as unknown, so a stale "Up" can't trigger BUY signals.
+const niftyFresh = (rec) => !!rec && (Date.parse(todayStr()) - Date.parse(rec.day)) / 864e5 <= 3;
+function syncNifty(rec) {
+  const fresh = niftyFresh(rec);
+  setNiftyTrend(fresh ? rec.up : null);
+  document.querySelectorAll("[data-nifty]").forEach((b) => b.setAttribute("aria-pressed", String(fresh && (b.dataset.nifty === "up") === rec.up)));
+  $("#niftyBar").classList.toggle("unset", !fresh);
+  $("#niftyNote").textContent = fresh
+    ? `Set ${rec.day === todayStr() ? "today" : "on " + rec.day}${rec.source === "chart" ? " from your Nifty chart" : ""}. Up means Nifty is above its 50-day average.`
+    : rec ? "Out of date. Set it again: BUY signals need today's Nifty trend."
+    : "Not set. BUY signals need it: tap Up if Nifty is above its 50-day average, or upload a Nifty chart.";
+}
+function reanalyse(st) {
+  const fresh = analyse({ ...st });
+  return st.photo ? photoStock({ ...fresh, photo: st.photo }, st.photo.nse) : fresh;
+}
+function setNifty(up, source) {
+  const rec = { up, day: todayStr(), source };
+  try { localStorage.setItem(NIFTY_KEY, JSON.stringify(rec)); } catch { /* still applies for this visit */ }
+  syncNifty(rec);
+  setState({ stocks: state.stocks.map(reanalyse) });
+}
+/** A Nifty chart (photo or CSV) sets the market trend: last close above its 50-day average = Up. */
+function niftyFromBars(symbol, bars) {
+  if (!/^NIFTY(\s?50)?$/i.test(String(symbol).replace(/\s*\(photo\)$/, "")) || bars.length < 50) return;
+  const c = bars.map((b) => b.c), e50 = ema(c, 50);
+  setNifty(c[c.length - 1] > e50[e50.length - 1], "chart");
+}
 function photoBars(candles) {
   const days = [];
   let t = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
@@ -360,6 +412,7 @@ function applyPhoto(data, imgUrl) {
   const stock = photoStock({ ...base, photo: { imgUrl, nse } }, nse);
   const stocks = [...state.stocks.filter((x) => x.symbol !== label), stock];
   setState({ stocks, active: stocks.length - 1, errors: [] });
+  niftyFromBars(nse, stock.bars);
   return stock;
 }
 function renamePhoto(i, sym) {
@@ -415,15 +468,13 @@ function renderVerdict(st) {
       <div class="action ${p.side}">${p.side === "WAIT" ? "WAIT" : p.side}<small>${p.side === "WAIT" ? "No trade" : esc(p.setup)}</small></div>
     </div>
     <p class="summary">${st.summary.map(esc).join(" ")}</p>
+    <ul class="checks" aria-label="Conditions for a pullback buy">${p.conditions.map((x) => `<li class="${x.ok ? "ok" : "no"}"><span aria-hidden="true">${x.ok ? "✓" : "✗"}</span><div>${esc(x.text)}</div></li>`).join("")}</ul>
     <dl class="plan" style="margin:0">
-      ${cell(p.type === "limit" ? "Entry (limit)" : "Entry", inr(p.entry))}${cell("Stop loss", inr(p.stop))}${cell("Target", inr(p.target))}
+      ${cell("Buy at next open", inr(p.entry))}${cell("Safety stop", inr(p.stop))}${cell("Sell around", inr(p.target))}
       ${cell("Reward : risk", isFinite(p.rr) ? p.rr.toFixed(1) + " : 1" : "–")}${cell("Support", inr(p.sP))}${cell("Resistance", inr(p.rP))}
     </dl>
-    <div><div class="scorebar"><i style="left:${(p.score + 100) / 2}%"></i></div>
-      <div class="scorelabels"><span>Bearish −100</span><span class="num">Signal score ${p.score > 0 ? "+" : ""}${p.score}</span><span>+100 Bullish</span></div></div>
-    <ul class="why">${p.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>
     ${st.note ? `<p class="note">${esc(st.note)}</p>` : ""}
-    <p class="note">Signal score measures how strongly the inputs agree. It is not a probability. For how often this rule has actually worked on this stock, see the backtest below. Educational tool, not investment advice.</p>`;
+    <p class="note">BUY appears only when all three conditions hold; otherwise WAIT. On 5 years of real NSE data this rule won ${Math.round(RULE_STATS.all.win * 100)}% of ${RULE_STATS.all.n.toLocaleString("en-IN")} trades, but each gain is small, and on the unseen 2025–26 data it averaged ${RULE_STATS.test.avg >= 0 ? "+" : ""}${RULE_STATS.test.avg.toFixed(2)}% per trade. The app never says SELL: no sell rule held up in testing. Educational tool, not investment advice.</p>`;
 }
 const cell = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`;
 function photoBanner(st) {
@@ -432,12 +483,10 @@ function photoBanner(st) {
     ${trackLine({ setupName: st.plan.setup, nse: st.photo.nse })}`;
 }
 function trackLine(s) {
-  const o = REAL.setups[s.setupName], k = REAL.stocks[s.nse];
-  if (!o && !k) return "";
+  const all = RULE_STATS.all, k = RULE_STATS.stocks[s.nse];
   const pc = (x) => Math.round(x * 100) + "%";
-  const parts = [];
-  if (o) parts.push(`"${s.setupName}" trades won ${pc(o.win)} and lost ${pc(o.loss)} of the time across ${o.n.toLocaleString("en-IN")} real trades (${o.net >= 0 ? "+" : ""}${o.net.toFixed(2)}R each after costs)`);
-  if (k) parts.push(`on ${s.nse} itself, this app's signals won ${pc(k.win)} of ${k.n} trades`);
+  const parts = [`the ${RULE_STATS.rule.toLowerCase()} rule won ${pc(all.win)} of ${all.n.toLocaleString("en-IN")} real trades across ${RULE_STATS.stocksCount} stocks`];
+  if (k && k.n) parts.push(`on ${s.nse} itself it won ${pc(k.win)} of ${k.n} trades`);
   return `<p class="banner" style="margin:0">Real track record: ${esc(parts.join("; "))}. Details below.</p>`;
 }
 let chart = null;
@@ -508,37 +557,39 @@ function renderOI(st) {
     </div>`;
 }
 function realRecordHTML(s) {
-  const pc = (x) => (isFinite(x) ? Math.round(x * 100) + "%" : "–"), rr = (x) => (isFinite(x) ? (x >= 0 ? "+" : "") + x.toFixed(2) + "R" : "–");
-  const stock = REAL.stocks[s.nse], setup = REAL.setups[s.setupName], all = REAL.overall;
-  const card = (k, o, sub) => `<div class="stat"><div class="k">${esc(k)}</div><div class="v ${o.net >= 0 ? "win" : "loss"}">${rr(o.net)}</div><div class="s">per trade after costs · won ${pc(o.win)}, lost ${pc(o.loss)} of ${o.n.toLocaleString("en-IN")} trades${sub ? " · " + sub : ""}</div></div>`;
-  return `<div class="sechead"><h2>Real track record</h2><span class="muted" style="font-size:12px">This app's rules replayed on real NSE daily data, ${REAL.period}, ${REAL.stocksCount} F&amp;O stocks</span></div>
+  const R_ = RULE_STATS, k = R_.stocks[s.nse];
+  const pc = (x) => (isFinite(x) ? Math.round(x * 100) + "%" : "–"), pr = (x) => (isFinite(x) ? (x >= 0 ? "+" : "") + x.toFixed(2) + "%" : "–");
+  const card = (title, o, sub) => `<div class="stat"><div class="k">${esc(title)}</div><div class="v ${o.avg >= 0 ? "win" : "loss"}">${pc(o.win)} won</div><div class="s">${pr(o.avg)} average per trade after costs · ${o.n.toLocaleString("en-IN")} trades${sub ? " · " + sub : ""}</div></div>`;
+  const years = Object.entries(R_.years).map(([y, o]) => `<tr><td>${y}</td><td>${o.n}</td><td>${pc(o.win)}</td><td class="${o.avg >= 0 ? "win" : "loss"}">${pr(o.avg)}</td></tr>`).join("");
+  return `<div class="sechead"><h2>Real track record of this rule</h2><span class="muted" style="font-size:12px">Replayed on real NSE daily data, ${R_.period}, ${R_.stocksCount} F&amp;O stocks · buy at next open · 0.1% costs</span></div>
     <div class="stats">
-      ${stock ? card(`${s.nse}: this stock`, stock, "") : `<div class="stat"><div class="k">This stock</div><div class="v muted">–</div><div class="s">${s.nse ? esc(s.nse) + " is not in the tested list." : "The stock couldn't be identified."} Upload its CSV for a stock-specific test.</div></div>`}
-      ${setup ? card(`${s.setupName}: all stocks`, setup, "") : `<div class="stat"><div class="k">This setup</div><div class="v muted">–</div><div class="s">No matching setup in the tested rules.</div></div>`}
-      ${card("Every signal, all stocks", all, "")}
-      <div class="stat"><div class="k">Levels held</div><div class="v">${pc(stock ? stock.sup : all.sup)}</div><div class="s">support · resistance ${pc(stock ? stock.res : all.res)} · a random price level holds ${pc(REAL.randomLevelHold)}</div></div>
+      ${card("All years, all stocks", R_.all, `worst trade ${pr(R_.all.worst)}`)}
+      ${card("Unseen years 2025–26", R_.test, `random trades: ${pc(R_.randomTest.win)} won, ${pr(R_.randomTest.avg)}`)}
+      ${k && k.n ? card(`${s.nse}: this stock`, k, "") : `<div class="stat"><div class="k">This stock</div><div class="v muted">–</div><div class="s">${s.nse ? esc(s.nse) + " is not in the tested list." : "The stock couldn't be identified; type it in the Symbol box."}</div></div>`}
+      <div class="stat"><div class="k">Typical holding</div><div class="v">${R_.medianDays} days</div><div class="s">Sell on the bounce; safety stop 3× the daily range below entry</div></div>
     </div>
-    <p class="note">These numbers come from this app's own rules run on real NSE data, not from your screenshot. Over 5 years the signals did no better than random entries, so treat the decision as a map of levels, not a prediction. Educational tool, not investment advice.</p>`;
+    <div class="tablewrap"><table><thead><tr><th>Year</th><th>Trades</th><th>Won</th><th>Average</th></tr></thead><tbody>${years}</tbody></table></div>
+    <p class="note">Settings were chosen on 2021–24 only, then checked on 2025–26, which they never saw. The edge is real but small, and 2026 so far has been weaker. Wins are frequent but small; losses are rarer but bigger. Educational tool, not investment advice.</p>`;
 }
 function renderBacktest(st) {
   const el = $("#backtest");
   if (!st) { el.innerHTML = `<h2>Backtest</h2><p class="empty">After you load data, the same rule is replayed over your history so you can see how often it actually worked.</p>`; return; }
   if (st.photo) { el.innerHTML = realRecordHTML({ nse: st.photo.nse, setupName: st.plan.setup }); return; }
-  const bt = st.bt, h = bt.hold, closed = bt.wins + bt.losses;
-  const pct = (a, b) => (b ? `${Math.round(a / b * 100)}%` : "–");
-  const recent = bt.trades.slice(-12).reverse(), intraday = st.ctx.unit === "bar";
-  el.innerHTML = `<div class="sechead"><h2>Backtest on your data</h2><span class="muted" style="font-size:12px">Walk-forward over ${bt.bars} bars · no future data used · ${HOLD}-bar time limit</span></div>
+  const bt = st.bt, intraday = st.ctx.unit === "bar";
+  const pr = (x) => (isFinite(x) ? (x >= 0 ? "+" : "") + x.toFixed(2) + "%" : "–");
+  const recent = bt.trades.slice(-12).reverse();
+  const how = { bounce: "bounce", stop: "stop", time: "time limit", open: "still open" };
+  el.innerHTML = `<div class="sechead"><h2>The rule on your data</h2><span class="muted" style="font-size:12px">${bt.bars} bars · buy at next open · 0.1% costs · Nifty check not applied (a CSV has no Nifty data)</span></div>
     <div class="stats">
-      <div class="stat"><div class="k">Target before stop</div><div class="v">${pct(bt.wins, closed)}</div><div class="s">${bt.wins} wins, ${bt.losses} losses, ${bt.timeouts} timed out</div></div>
-      <div class="stat"><div class="k">Average result</div><div class="v ${bt.avgR >= 0 ? "win" : "loss"}">${isFinite(bt.avgR) ? (bt.avgR >= 0 ? "+" : "") + bt.avgR.toFixed(2) + "R" : "–"}</div><div class="s">Per trade, in units of risk</div></div>
-      <div class="stat"><div class="k">Strong support held</div><div class="v">${pct(h.sH, h.sT)}</div><div class="s">${h.sH} of ${h.sT} tests</div></div>
-      <div class="stat"><div class="k">Strong resistance held</div><div class="v">${pct(h.rH, h.rT)}</div><div class="s">${h.rH} of ${h.rT} tests</div></div>
+      <div class="stat"><div class="k">Trades won</div><div class="v">${isFinite(bt.winRate) ? Math.round(bt.winRate * 100) + "%" : "–"}</div><div class="s">${bt.wins} of ${bt.closed} completed trades</div></div>
+      <div class="stat"><div class="k">Average per trade</div><div class="v ${bt.avgRet >= 0 ? "win" : "loss"}">${pr(bt.avgRet)}</div><div class="s">after costs</div></div>
+      <div class="stat"><div class="k">Worst trade</div><div class="v loss">${pr(bt.worst)}</div><div class="s">with the 3× daily-range safety stop</div></div>
     </div>
-    ${closed < 10 ? `<p class="note">Fewer than 10 completed trades. Upload a longer history (1–2 years of daily data) before trusting these numbers.</p>` : ""}
-    ${recent.length ? `<div class="tablewrap"><table><thead><tr><th>Signal</th><th>Setup</th><th>Entry</th><th>Stop</th><th>Target</th><th>Exit</th><th>Result</th></tr></thead><tbody>
-      ${recent.map((t) => `<tr><td>${fmtDate(t.t, intraday)}</td><td><span class="chip ${t.side}">${t.side}</span> <span class="muted">${esc(t.setup)}</span></td><td>${inr(t.entry)}</td><td>${inr(t.stop)}</td><td>${inr(t.target)}</td><td>${inr(t.exitPx)}</td>
-      <td class="${t.outcome === "win" ? "win" : t.outcome === "loss" ? "loss" : "muted"}">${t.outcome === "open" ? "open" : (t.r >= 0 ? "+" : "") + t.r.toFixed(2) + "R"}${t.outcome === "timeout" ? " (time)" : ""}</td></tr>`).join("")}
-    </tbody></table></div>` : ""}`;
+    ${bt.closed < 10 ? `<p class="note">Fewer than 10 completed trades. Upload a longer history (1–2 years of daily data) before trusting these numbers.</p>` : ""}
+    ${recent.length ? `<div class="tablewrap"><table><thead><tr><th>Signal</th><th>Entry</th><th>Stop</th><th>Exit</th><th>Result</th><th>Closed by</th></tr></thead><tbody>
+      ${recent.map((t) => `<tr><td>${fmtDate(t.t, intraday)}</td><td>${inr(t.entry)}</td><td>${inr(t.stop)}</td><td>${inr(t.exitPx)}</td><td class="${t.ret > 0 ? "win" : "loss"}">${pr(t.ret * 100)}</td><td class="muted">${how[t.outcome]}</td></tr>`).join("")}
+    </tbody></table></div>` : ""}
+    ${realRecordHTML({ nse: String(st.symbol).toUpperCase() })}`;
 }
 
 /* ---------- events ---------- */
@@ -548,6 +599,8 @@ $("#loadSample").addEventListener("click", loadSamples);
 $("#fileShot").addEventListener("change", (e) => { if (e.target.files[0]) handleShot(e.target.files[0]); e.target.value = ""; });
 $("#fileShot2").addEventListener("change", (e) => { if (e.target.files[0]) handleShot(e.target.files[0]); e.target.value = ""; });
 $("#shotStop").addEventListener("click", () => { shotCtl?.abort(); shotCtl = null; $("#shotStatus").hidden = true; });
+document.querySelectorAll("[data-nifty]").forEach((b) => b.addEventListener("click", () => setNifty(b.dataset.nifty === "up", "manual")));
+syncNifty(loadNifty());
 $("#verdict").addEventListener("change", (e) => { if (e.target.id === "photoSym") renamePhoto(+e.target.dataset.i, e.target.value); });
 window.addEventListener("paste", (e) => {
   const img = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith("image/"));
@@ -577,6 +630,10 @@ loadSamples();
 
 <script>
 if ("serviceWorker" in navigator) {
+  // When an updated version of the app has been saved, switch to it straight away (once).
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController && !reloaded) { reloaded = true; location.reload(); } });
   window.addEventListener("load", () => { navigator.serviceWorker.register("sw.js").catch(() => { /* works online without it */ }); });
 }
 </script>
