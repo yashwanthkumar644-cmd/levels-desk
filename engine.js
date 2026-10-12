@@ -206,7 +206,7 @@ function sourcesText(l) {
  * Buy at the next open, sell when RSI(2) closes above 70, with a safety stop 3 ATR below the entry
  * and a 15-day time limit. No SELL rule held up on unseen data, so the app never says SELL.
  */
-const RULE = { name: "Pullback buy", rsiMax: 10, exitRsi: 70, stopAtr: 3, maxHold: 15, minBars: 55 };
+const RULE = { name: "Pullback buy", rsiMax: 10, exitRsi: 70, stopAtr: 3, maxHold: 15, minBars: 50 };
 let NIFTY_UP = null; // true / false / null (unknown); set from the page
 const setNiftyTrend = (v) => { NIFTY_UP = v; };
 

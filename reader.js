@@ -37,20 +37,20 @@
     return workerPromise;
   }
 
-  async function ocrWords(canvas, scale, offsetX, onProgress) {
+  async function ocrWords(canvas, scale, offsetX, onProgress, keepColour = false) {
     const worker = await getWorker(onProgress);
-    const { data } = await worker.recognize(prepareForOcr(canvas, scale));
+    const { data } = await worker.recognize(prepareForOcr(canvas, scale, keepColour));
     const words = [];
     for (const line of data.lines || []) {
       const merged = [];
       for (const w of line.words || []) {
         const b = w.bbox;
-        const cur = { text: w.text, x: b.x0 / scale + offsetX, y: b.y0 / scale, w: (b.x1 - b.x0) / scale, h: (b.y1 - b.y0) / scale };
+        const cur = { text: w.text, conf: w.confidence, x: b.x0 / scale + offsetX, y: b.y0 / scale, w: (b.x1 - b.x0) / scale, h: (b.y1 - b.y0) / scale };
         const prev = merged[merged.length - 1];
         // Recognition sometimes splits '1,900.0' into '1' and ',900.0'; rejoin pieces that touch.
         if (prev && cur.x - (prev.x + prev.w) <= 0.45 * Math.max(prev.h, cur.h) && isNumericPiece(prev.text) && isNumericPiece(cur.text)) {
           const top = Math.min(prev.y, cur.y), bottom = Math.max(prev.y + prev.h, cur.y + cur.h);
-          merged[merged.length - 1] = { text: prev.text + cur.text, x: prev.x, y: top, w: cur.x + cur.w - prev.x, h: bottom - top };
+          merged[merged.length - 1] = { text: prev.text + cur.text, conf: Math.min(prev.conf, cur.conf), x: prev.x, y: top, w: cur.x + cur.w - prev.x, h: bottom - top };
         } else merged.push(cur);
       }
       words.push(...merged);
@@ -60,7 +60,7 @@
   const isNumericPiece = (t) => /^[\dOo,._]+$/.test(t);
 
   /** Scaled greyscale copy with dark text on a light background, which the text engine reads best. */
-  function prepareForOcr(canvas, scale) {
+  function prepareForOcr(canvas, scale, keepColour = false) {
     const out = document.createElement("canvas");
     out.width = Math.round(canvas.width * scale); out.height = Math.round(canvas.height * scale);
     const g = out.getContext("2d", { willReadFrequently: true });
@@ -80,7 +80,8 @@
     const coloured = new Uint8Array(lum.length);
     for (let i = 0; i < lum.length; i++) {
       const r = d[i * 4], gg = d[i * 4 + 1], b = d[i * 4 + 2], mx = Math.max(r, gg, b);
-      coloured[i] = mx >= 60 && (mx - Math.min(r, gg, b)) / mx >= 0.3 ? 1 : 0;
+      // Coloured text (legends, OHLC values) must be readable on the full-chart pass so it can be masked.
+      coloured[i] = !keepColour && mx >= 60 && (mx - Math.min(r, gg, b)) / mx >= 0.3 ? 1 : 0;
     }
     const ink = new Uint8Array(lum.length);
     for (let i = 0; i < lum.length; i++) ink[i] = !coloured[i] && Math.abs(lum[i] - bg) > 24 ? 1 : 0;
@@ -173,8 +174,11 @@
     if (!best) throw new ReadError("no_axis");
     const pts = best.cols.map(([w, v]) => [w.y + w.h / 2, v]);
     const [slope, intercept] = fit(pts);
+    const ys = pts.map((p) => p[0]).sort((a, b) => a - b);
+    const gaps = ys.slice(1).map((y, i) => y - ys[i]).filter((g) => g > 3);
     return {
       slope, intercept,
+      labelGap: gaps.length ? median(gaps) : 40, // pixels between neighbouring price labels
       xLeft: Math.min(...best.cols.map(([w]) => w.x)),
       yTop: Math.min(...best.cols.map(([w]) => w.y)),
       yBottom: Math.max(...best.cols.map(([w]) => w.y + w.h)),
@@ -189,9 +193,12 @@
     for (let i = 0; i < n; i++) {
       const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
       const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
-      if (mx < 90 || (mx - mn) / mx < 0.35) continue;
-      if (g >= r + 40 && g >= b - 30) green[i] = 1;
-      else if (r >= g + 60 && r >= b + 40) red[i] = 1;
+      // Real candles are strong, bright colours; see-through volume bars and anti-aliased edges are paler or darker.
+      if (mx < 140 || (mx - mn) / mx < 0.45) continue;
+      // Candle greens/teals have blue no higher than green (cyan lines do); candle reds have little
+      // green or blue (orange, pink and purple lines don't count).
+      if (g >= r + 40 && b <= g + 4) green[i] = 1;
+      else if (r >= g + 60 && r >= b + 40 && g <= r * 0.45 && b <= r * 0.6) red[i] = 1;
     }
     return [green, red];
   }
@@ -313,7 +320,10 @@
   function extractCandles(img, axis, words) {
     const { width: w, height: h } = img;
     let [green, red] = colourMasks(img);
-    const y0 = Math.max(0, Math.floor(axis.yTop - 6)), y1 = Math.min(h, Math.ceil(axis.yBottom + 6));
+    // Candles can sit beyond the outermost price labels, and the top or bottom label is sometimes
+    // not read at all: look up to four label gaps further out.
+    const reach = Math.ceil(axis.labelGap * 4);
+    const y0 = Math.max(0, Math.floor(axis.yTop - reach)), y1 = Math.min(h, Math.ceil(axis.yBottom + reach));
     const x1 = Math.max(1, Math.floor(axis.xLeft - 14)); // coloured axis tags start a little left of the label text
     const keep = new Uint8Array(w * h);
     for (let y = y0; y < y1; y++) for (let x = 0; x < x1; x++) keep[y * w + x] = 1;
@@ -361,11 +371,42 @@
       const nb = [...mids.slice(Math.max(0, k - 4), k), ...mids.slice(k + 1, k + 5)];
       const expected = nb.length ? median(nb) : mids[k];
       const far = (r) => Math.abs((r[0] + r[1]) / 2 - expected) > 6 * typical;
-      const [top, bottom, wickX] = runs.reduce((a, r) => {
+      // A candle has a body: some row in its span is several pixels wide. A moving-average line
+      // crossing the slot is only 1-2 pixels wide in every row, however long its vertical run.
+      const sx = Math.max(0, Math.round(runs[0][2] - period)), ex = Math.min(x1 - 1, Math.round(runs[0][2] + period));
+      const bodyW = (r) => {
+        let best = 0;
+        for (let y = r[0]; y <= r[1]; y++) {
+          let n = 0, run = 0;
+          for (let x = Math.max(sx, r[2] - Math.ceil(half)); x <= Math.min(ex, r[2] + Math.ceil(half)); x++) {
+            run = both[y * w + x] ? run + 1 : 0; n = Math.max(n, run);
+          }
+          best = Math.max(best, n);
+        }
+        return best;
+      };
+      const hasBody = new Map(runs.map((r) => [r, bodyW(r) >= 3]));
+      const seed = runs.reduce((a, r) => {
         if (far(a) !== far(r)) return far(a) ? r : a;
+        if (hasBody.get(a) !== hasBody.get(r)) return hasBody.get(r) ? r : a;
         return r[1] - r[0] > a[1] - a[0] ? r : a;
       });
-      if (Math.abs((top + bottom) / 2 - expected) > 8 * typical) return;
+      if (Math.abs((seed[0] + seed[1]) / 2 - expected) > 8 * typical) return;
+      // Grow the candle from that run through every run in the slot that touches it vertically.
+      // Hollow candles have no single wick-to-wick line: the upper wick, the body outline and the
+      // lower wick are separate runs that only meet end to end.
+      let top = seed[0], bottom = seed[1], minX = seed[2], maxX = seed[2], grew = true;
+      const used = new Set([seed]);
+      while (grew) {
+        grew = false;
+        for (const r of runs) {
+          if (used.has(r) || r[0] > bottom + 2 || r[1] < top - 2) continue;
+          used.add(r); grew = true;
+          top = Math.min(top, r[0]); bottom = Math.max(bottom, r[1]);
+          minX = Math.min(minX, r[2]); maxX = Math.max(maxX, r[2]);
+        }
+      }
+      const wickX = Math.round((minX + maxX) / 2);
       const s = Math.max(0, Math.round(wickX - half)), e = Math.min(x1 - 1, Math.round(wickX + half));
       const rowWidth = [];
       let gCount = 0, rCount = 0;
@@ -460,14 +501,24 @@
     const canvas = await toCanvas(file).catch((e) => { throw e instanceof ReadError ? e : new ReadError("image_rejected"); });
     const { width, height } = canvas;
     onProgress && onProgress({ status: "reading chart text" });
-    const allWords = await ocrWords(canvas, 1, 0, onProgress);
+    const allWords = await ocrWords(canvas, 1, 0, onProgress, true);
     onProgress && onProgress({ status: "reading price scale" });
     const axisWords = await readAxisColumn(canvas, allWords, onProgress);
     let axis;
     try { axis = findAxis(axisWords, width); } catch { axis = findAxis([...allWords, ...axisWords], width); }
     onProgress && onProgress({ status: "finding candles" });
     const img = canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, width, height);
-    const candles = extractCandles(img, axis, [...allWords, ...axisWords]);
+    // Mask confident, text-like words only: the engine also "reads" short junk off candles, and masking
+    // that would delete real candles.
+    // Real chart labels are numbers (prices, dates) or capitalised names (symbol, exchange); junk read off
+    // candles is short lowercase ("nll", "fin") or thin strokes ("IIl1").
+    const isLabel = (t) => {
+      const core = t.replace(/[^A-Za-z0-9&]/g, "");
+      if (core.length < 3 || /^[Il1|!i]+$/.test(core)) return false;
+      return (core.match(/\d/g) || []).length >= 2 || /^[A-Z0-9&]+$/.test(core);
+    };
+    const textLike = allWords.filter((wd) => wd.conf >= 60 && isLabel(wd.text));
+    const candles = extractCandles(img, axis, [...textLike, ...axisWords]);
     if (candles.length < 30) throw new ReadError("too_few_candles", `found ${candles.length} candles`);
     const round = (v) => Math.round(v * 100) / 100;
     return {
