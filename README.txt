@@ -31,7 +31,7 @@ EVERY DAY
 1. Set "Nifty trend today" at the top: Up if Nifty is above its 50-day average, Down if
    below. (Or upload a Nifty chart screenshot and the app sets it for you.)
 2. Take a screenshot of a stock chart in your trading app (Kite, Upstox, TradingView...).
-   Show at least 55 candles.
+   Show about 50 to 100 candles.
 3. Open Levels Desk, tap "Upload a chart photo" and pick the screenshot.
 4. In 5 to 15 seconds you see BUY or WAIT, the three conditions with ticks or crosses,
    the plan, the levels and a rebuilt chart to compare with yours.
@@ -39,10 +39,19 @@ EVERY DAY
 
 FOR A GOOD READING
 ------------------
-- A candlestick chart with the normal green and red colours.
+- A candlestick chart with the normal green and red colours (not a line chart).
 - The price numbers on the right side of the chart must be in the screenshot.
+- About 50 to 100 candles on screen. If the candles look tiny, zoom in first.
 - If the stock name isn't picked up, type it in the "Symbol" box on the result.
 - Compare the rebuilt chart with your chart; if it doesn't match, take a clearer screenshot.
+
+WHEN THE APP SAYS NO
+--------------------
+The app checks every reading. If the screenshot isn't a clear candlestick chart,
+it says "Couldn't read this chart reliably" and shows no decision, with the reason.
+If the candles are very small (crowded chart), it shows the levels but never BUY;
+zoom in and upload again. This is on purpose: no answer is better than a wrong one.
+The app starts empty; "Try made-up example" only shows invented prices for practice.
 
 
 HOW THE DECISION WORKS

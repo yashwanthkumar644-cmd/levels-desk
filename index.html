@@ -186,7 +186,7 @@ textarea { min-height: 120px; }
   <div class="actions">
     <label class="btn" for="fileBars">Upload price CSV<input id="fileBars" type="file" accept=".csv,.txt,text/csv" multiple></label>
     <label class="btn primary" for="fileShot" id="shotBtn" hidden>Upload chart photo<input id="fileShot" type="file" accept="image/png,image/jpeg,image/webp"></label>
-    <button id="loadSample" type="button">Load example data</button>
+    <button id="loadSample" type="button">Try made-up example</button>
   </div>
 </header>
 
@@ -341,8 +341,22 @@ const PHOTO_ERRORS = {
   ocr_unavailable: "The text reader couldn't start. Connect to the internet once and reopen the app so it can finish setting up.",
   image_rejected: "That file couldn't be opened as an image. Pick a screenshot (PNG or JPG).",
   busy: "Still reading the previous chart. Wait a moment.",
+  unreliable: "Couldn't read this chart reliably, so no decision is shown.",
 };
-const photoError = (e) => PHOTO_ERRORS[e?.code] || "Something went wrong while reading the chart. Try a clearer screenshot.";
+const QUALITY_TEXT = {
+  axis: "the price numbers on the right didn't line up on a straight scale",
+  no_bodies: "the shapes don't have candle bodies (line and bar charts can't be read)",
+  no_wicks: "most shapes have no wicks, so they don't look like candles",
+  one_colour: "almost all candles came out the same colour",
+  jumpy: "the candles read don't join up the way real prices do",
+};
+const photoError = (e) => {
+  if (e?.code === "unreliable") {
+    const why = (e.issues || []).map((k) => QUALITY_TEXT[k]).filter(Boolean).join("; ");
+    return `${PHOTO_ERRORS.unreliable}${why ? " Reason: " + why + "." : ""} Try again with a candlestick chart, the price numbers visible on the right, and about 50 to 100 candles.`;
+  }
+  return PHOTO_ERRORS[e?.code] || "Something went wrong while reading the chart. Try a clearer screenshot.";
+};
 function showStatus(msg) { $("#shotMsg").textContent = msg; $("#shotStatus").hidden = false; }
 const KNOWN = [...Object.keys(RULE_STATS.stocks), "NIFTY", "BANKNIFTY"];
 const STEP_TEXT = { "reading price scale": "Reading the price scale…", "reading chart text": "Reading the chart labels…", "finding candles": "Finding the candles…" };
@@ -399,17 +413,24 @@ function photoBars(candles) {
   }
   return candles.map((c, i) => ({ t: days[i], o: c.o, h: Math.max(c.h, c.o, c.c), l: Math.min(c.l, c.o, c.c), c: c.c, v: 0 }));
 }
+const CROWDED_TEXT = "The candles in this screenshot are very small, so the reading is less reliable and no BUY is given. Zoom in so about 50 to 100 candles fill the screen, then upload again.";
 function photoStock(base, sym) {
   const last = base.bars[base.bars.length - 1];
-  const summary = [`${sym || "This chart"} last traded at ${inr(last.c)} in your screenshot (${base.bars.length} candles read).`, ...base.summary.slice(1)];
-  return { ...base, summary };
+  const crowded = (base.photo?.warnings || []).includes("crowded");
+  const plan = crowded && base.plan.side === "BUY"
+    ? { ...base.plan, side: "WAIT", type: "", setup: "No trade", entry: NaN, stop: NaN, target: NaN, rr: NaN, waitReason: CROWDED_TEXT }
+    : base.plan;
+  const rest = crowded && base.plan.side === "BUY" ? [`Decision: wait. ${CROWDED_TEXT}`, ...base.summary.slice(3)] : base.summary.slice(1);
+  const summary = [`${sym || "This chart"} last traded at ${inr(last.c)} in your screenshot (${base.bars.length} candles read).`, ...rest];
+  return { ...base, plan, summary };
 }
 function applyPhoto(data, imgUrl) {
   if (!data || !Array.isArray(data.candles) || data.candles.length < 30) throw { code: "too_few_candles" };
+  if (data.quality && !data.quality.ok) throw { code: "unreliable", issues: data.quality.issues };
   const nse = String(data.symbol || "");
   const label = `${nse || "CHART"} (photo)`;
   const base = analyse({ symbol: label, bars: photoBars(data.candles), oc: null, note: "", sample: false });
-  const stock = photoStock({ ...base, photo: { imgUrl, nse } }, nse);
+  const stock = photoStock({ ...base, photo: { imgUrl, nse, warnings: data.quality?.warnings || [] } }, nse);
   const stocks = [...state.stocks.filter((x) => x.symbol !== label), stock];
   setState({ stocks, active: stocks.length - 1, errors: [] });
   niftyFromBars(nse, stock.bars);
@@ -457,7 +478,8 @@ function renderWatch() {
 }
 function renderVerdict(st) {
   const el = $("#verdict");
-  if (!st) { el.innerHTML = `<h2>Decision</h2><p class="summary">Upload a daily price CSV for any NSE F&amp;O stock, or load the example data to see how the analysis reads.</p>`; return; }
+  if (!st) { el.innerHTML = `<h2>Decision</h2><p class="summary">No chart yet. Set today's Nifty trend above, then tap <b>Upload a chart photo</b> and pick a screenshot of a candlestick chart from your trading app.</p>
+    <ul class="why"><li>Use a candlestick chart (green and red candles), not a line chart.</li><li>Keep the price numbers on the right side in the screenshot.</li><li>Show about 50 to 100 candles: zoom in if they look tiny.</li></ul>`; return; }
   const p = st.plan, last = st.bars[st.bars.length - 1], prev = st.bars[st.bars.length - 2];
   const chg = (last.c - prev.c) / prev.c * 100;
   el.innerHTML = `
@@ -478,7 +500,8 @@ function renderVerdict(st) {
 }
 const cell = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`;
 function photoBanner(st) {
-  return `<div class="banner photobar">Read from your screenshot on this phone. Prices are accurate to about 0.1%; very small or cluttered charts read less well.
+  const crowded = (st.photo.warnings || []).includes("crowded");
+  return `${crowded ? `<div class="banner" style="margin:0">${esc(CROWDED_TEXT)}</div>` : ""}<div class="banner photobar">Read from your screenshot on this phone. Check the rebuilt chart below against your own chart.
       <label for="photoSym">Symbol <input type="text" id="photoSym" value="${esc(st.photo.nse)}" placeholder="e.g. RELIANCE" data-i="${state.stocks.indexOf(st)}"></label></div>
     ${trackLine({ setupName: st.plan.setup, nse: st.photo.nse })}`;
 }
@@ -624,8 +647,8 @@ window.addEventListener("drop", (e) => { e.preventDefault(); dragDepth = 0; docu
 const rerenderChart = () => renderChart(state.stocks[state.active]);
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", rerenderChart);
 new MutationObserver(rerenderChart).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+render(); // start empty: show the welcome tips
 
-loadSamples();
 </script>
 
 <script>

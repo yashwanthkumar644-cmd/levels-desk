@@ -183,6 +183,8 @@
       yTop: Math.min(...best.cols.map(([w]) => w.y)),
       yBottom: Math.max(...best.cols.map(([w]) => w.y + w.h)),
       price: (y) => intercept + slope * y,
+      // How far the worst price label sits off the straight scale, in pixels (a real axis is ~0-2 px).
+      errPx: Math.max(...pts.map(([y, p]) => Math.abs(p - (intercept + slope * y)) / Math.abs(slope))),
     };
   }
 
@@ -317,13 +319,12 @@
   }
   const median = (a) => { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
-  function extractCandles(img, axis, words) {
+  function extractCandles(img, axis, words, reachUp = 1.1, reachDown = 1.1) {
     const { width: w, height: h } = img;
     let [green, red] = colourMasks(img);
-    // Candles can sit beyond the outermost price labels, and the top or bottom label is sometimes
-    // not read at all: look up to four label gaps further out.
-    const reach = Math.ceil(axis.labelGap * 4);
-    const y0 = Math.max(0, Math.floor(axis.yTop - reach)), y1 = Math.min(h, Math.ceil(axis.yBottom + reach));
+    // Candles can sit a little beyond the outermost price labels; the caller widens this when candles
+    // are found cut off at the edge (an unread top or bottom label).
+    const y0 = Math.max(0, Math.floor(axis.yTop - axis.labelGap * reachUp)), y1 = Math.min(h, Math.ceil(axis.yBottom + axis.labelGap * reachDown));
     const x1 = Math.max(1, Math.floor(axis.xLeft - 14)); // coloured axis tags start a little left of the label text
     const keep = new Uint8Array(w * h);
     for (let y = y0; y < y1; y++) for (let x = 0; x < x1; x++) keep[y * w + x] = 1;
@@ -361,52 +362,49 @@
     }
     if (!slots.length) return [];
     const half = Math.max(period * 0.45, 0.6);
-    // Pass 1: the longest run in a slot is usually the wick (high to low).
-    const first = slots.map(([, runs]) => runs.reduce((a, r) => (r[1] - r[0] > a[1] - a[0] ? r : a)));
-    const mids = first.map(([a, b]) => (a + b) / 2);
-    const typical = Math.max(median(first.map(([a, b]) => b - a)), 4);
+    // Join the runs in a slot that touch vertically into shapes. A hollow candle's upper wick, outline
+    // and lower wick are separate runs that meet end to end; joined, they are one candle.
+    const bodyWidth = (sh) => {
+      let best = 0;
+      const xa = Math.max(0, sh.minX - Math.ceil(half)), xb = Math.min(x1 - 1, sh.maxX + Math.ceil(half));
+      for (let y = sh.top; y <= sh.bottom; y++) {
+        let run = 0;
+        for (let x = xa; x <= xb; x++) { run = both[y * w + x] ? run + 1 : 0; if (run > best) best = run; }
+      }
+      return best;
+    };
+    const shapesOf = (runs) => {
+      let shapes = [...runs].sort((a, b) => a[0] - b[0]).map((r) => ({ top: r[0], bottom: r[1], minX: r[2], maxX: r[2] }));
+      for (let merged = true; merged;) {
+        merged = false;
+        const out = [];
+        for (const s of shapes) {
+          const t = out.find((o) => s.top <= o.bottom + 2 && s.bottom >= o.top - 2);
+          if (t) { t.top = Math.min(t.top, s.top); t.bottom = Math.max(t.bottom, s.bottom); t.minX = Math.min(t.minX, s.minX); t.maxX = Math.max(t.maxX, s.maxX); merged = true; }
+          else out.push({ ...s });
+        }
+        shapes = out;
+      }
+      // A candle has a body: some row is several pixels wide. A moving-average line crossing the slot is
+      // only 1-2 pixels wide in every row, however long it is.
+      return shapes.map((s) => ({ ...s, body: bodyWidth(s) >= 3, mid: (s.top + s.bottom) / 2, len: s.bottom - s.top }));
+    };
+    const better = (a, b) => (a.body !== b.body ? (a.body ? a : b) : a.len >= b.len ? a : b);
+    const slotShapes = slots.map(([, runs]) => shapesOf(runs));
+    // Pass 1: in each slot the most candle-like shape (has a body, then tallest) marks where prices trade.
+    const first = slotShapes.map((sh) => sh.reduce(better));
+    const mids = first.map((s) => s.mid);
+    const typical = Math.max(median(first.map((s) => s.len)), 4);
     const candles = [];
-    slots.forEach(([, runs], k) => {
+    slotShapes.forEach((shapes, k) => {
       // Pass 2: other coloured things in the same columns sit away from where the neighbours trade.
       const nb = [...mids.slice(Math.max(0, k - 4), k), ...mids.slice(k + 1, k + 5)];
       const expected = nb.length ? median(nb) : mids[k];
-      const far = (r) => Math.abs((r[0] + r[1]) / 2 - expected) > 6 * typical;
-      // A candle has a body: some row in its span is several pixels wide. A moving-average line
-      // crossing the slot is only 1-2 pixels wide in every row, however long its vertical run.
-      const sx = Math.max(0, Math.round(runs[0][2] - period)), ex = Math.min(x1 - 1, Math.round(runs[0][2] + period));
-      const bodyW = (r) => {
-        let best = 0;
-        for (let y = r[0]; y <= r[1]; y++) {
-          let n = 0, run = 0;
-          for (let x = Math.max(sx, r[2] - Math.ceil(half)); x <= Math.min(ex, r[2] + Math.ceil(half)); x++) {
-            run = both[y * w + x] ? run + 1 : 0; n = Math.max(n, run);
-          }
-          best = Math.max(best, n);
-        }
-        return best;
-      };
-      const hasBody = new Map(runs.map((r) => [r, bodyW(r) >= 3]));
-      const seed = runs.reduce((a, r) => {
-        if (far(a) !== far(r)) return far(a) ? r : a;
-        if (hasBody.get(a) !== hasBody.get(r)) return hasBody.get(r) ? r : a;
-        return r[1] - r[0] > a[1] - a[0] ? r : a;
-      });
-      if (Math.abs((seed[0] + seed[1]) / 2 - expected) > 8 * typical) return;
-      // Grow the candle from that run through every run in the slot that touches it vertically.
-      // Hollow candles have no single wick-to-wick line: the upper wick, the body outline and the
-      // lower wick are separate runs that only meet end to end.
-      let top = seed[0], bottom = seed[1], minX = seed[2], maxX = seed[2], grew = true;
-      const used = new Set([seed]);
-      while (grew) {
-        grew = false;
-        for (const r of runs) {
-          if (used.has(r) || r[0] > bottom + 2 || r[1] < top - 2) continue;
-          used.add(r); grew = true;
-          top = Math.min(top, r[0]); bottom = Math.max(bottom, r[1]);
-          minX = Math.min(minX, r[2]); maxX = Math.max(maxX, r[2]);
-        }
-      }
-      const wickX = Math.round((minX + maxX) / 2);
+      const far = (s) => Math.abs(s.mid - expected) > 6 * typical;
+      const pick = shapes.reduce((a, s) => (far(a) !== far(s) ? (far(a) ? s : a) : better(a, s)));
+      if (Math.abs(pick.mid - expected) > 8 * typical) return;
+      const top = pick.top, bottom = pick.bottom;
+      const wickX = Math.round((pick.minX + pick.maxX) / 2);
       const s = Math.max(0, Math.round(wickX - half)), e = Math.min(x1 - 1, Math.round(wickX + half));
       const rowWidth = [];
       let gCount = 0, rCount = 0;
@@ -422,7 +420,7 @@
         bTop = top + body[0]; bBot = top + body[body.length - 1];
       }
       const [o, c] = bull ? [axis.price(bBot), axis.price(bTop)] : [axis.price(bTop), axis.price(bBot)];
-      candles.push({ x: wickX, o, h: axis.price(top), l: axis.price(bottom), c, bull });
+      candles.push({ x: wickX, o, h: axis.price(top), l: axis.price(bottom), c, bull, bw: width, wick: top < bTop - 1 || bottom > bBot + 1, sp: period, cutTop: top <= y0 + 1 && y0 > 0, cutBottom: bottom >= y1 - 2 && y1 < h });
     });
     return dropIsolated(candles, period);
   }
@@ -496,6 +494,30 @@
     return words.length >= MIN_AXIS_LABELS ? words : [...words, ...(await ocrWords(crop(canvas, x0, width - x0), OCR_SCALE, x0, onProgress))];
   }
 
+  /** Checks that what was read looks like a real candlestick chart, so an unclear image can't produce a decision. */
+  function assessQuality(candles, axis) {
+    const n = candles.length, period = candles[0].sp;
+    const medRange = median(candles.map((c) => c.h - c.l)) || 1e-9;
+    let jumps = 0;
+    for (let i = 1; i < n; i++) if (Math.abs(candles[i].o - candles[i - 1].c) > 1.5 * medRange) jumps++;
+    const q = {
+      bodyPct: candles.filter((c) => c.bw >= 3).length / n,
+      wickPct: candles.filter((c) => c.wick).length / n,
+      greenPct: candles.filter((c) => c.bull).length / n,
+      jumpPct: jumps / (n - 1),
+      axisErrPx: axis.errPx,
+      spacing: period,
+    };
+    const issues = [], warnings = [];
+    if (period < 5) warnings.push("crowded");
+    if (q.axisErrPx > 3) issues.push("axis");
+    if (period >= 5 && q.bodyPct < 0.6) issues.push("no_bodies");
+    if (q.wickPct < 0.3) issues.push("no_wicks");
+    if (q.greenPct < 0.15 || q.greenPct > 0.85) issues.push("one_colour");
+    if (q.jumpPct > 0.25) issues.push("jumpy");
+    return { ...q, issues, warnings, ok: issues.length === 0 };
+  }
+
   async function read(file, knownSymbols, onProgress) {
     if (!file || !/^image\//.test(file.type || "image/")) throw new ReadError("image_rejected");
     const canvas = await toCanvas(file).catch((e) => { throw e instanceof ReadError ? e : new ReadError("image_rejected"); });
@@ -518,10 +540,21 @@
       return (core.match(/\d/g) || []).length >= 2 || /^[A-Z0-9&]+$/.test(core);
     };
     const textLike = allWords.filter((wd) => wd.conf >= 60 && isLabel(wd.text));
-    const candles = extractCandles(img, axis, [...textLike, ...axisWords]);
+    // Start just beyond the outermost labels and look further only where real candles are cut off at the
+    // edge, so text above the chart (like the coloured O/H/L/C line) is not mistaken for candles.
+    const masks = [...textLike, ...axisWords];
+    let up = 1.1, down = 1.1, candles = extractCandles(img, axis, masks, up, down);
+    for (let step = 0; step < 4; step++) {
+      const moreUp = candles.filter((c) => c.cutTop).length >= 2, moreDown = candles.filter((c) => c.cutBottom).length >= 2;
+      if (!moreUp && !moreDown) break;
+      if (moreUp) up += 1;
+      if (moreDown) down += 1;
+      candles = extractCandles(img, axis, masks, up, down);
+    }
     if (candles.length < 30) throw new ReadError("too_few_candles", `found ${candles.length} candles`);
     const round = (v) => Math.round(v * 100) / 100;
     return {
+      quality: assessQuality(candles, axis),
       symbol: findSymbol(allWords, new Set(knownSymbols || [])),
       candles: candles.map((c) => ({ x: c.x, o: round(c.o), h: round(c.h), l: round(c.l), c: round(c.c), bull: c.bull })),
       size: [width, height],
