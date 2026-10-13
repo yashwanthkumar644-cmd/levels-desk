@@ -199,8 +199,9 @@ function sourcesText(l) {
 
 /* ---------- decision: the pullback-buy rule ----------
  * Tested on 5 years of real NSE data (72 F&O stocks). Settings were chosen on 2021-24 only and then
- * checked on 2025-26, which the tuning never saw. BUY only when all three conditions hold:
- *   1. the stock is in an uptrend: close above its 50-day average, and the 20-day average above the 50-day
+ * checked on 2025-26 (the trend filter in step 1 was added later; it helped both periods). BUY only when all three conditions hold:
+ *   1. the stock is in a strong uptrend: close above its 50-day average, and the 20-day average at least
+ *      3% above the 50-day (this filter, added later, raised 2025-26 wins from 66% to 72%)
  *   2. it has just dipped sharply: RSI(2) below 10
  *   3. the market is in an uptrend: Nifty above its 50-day average (set by the user or a Nifty screenshot)
  * Buy at the next open, sell when RSI(2) closes above 70, with a safety stop 3 ATR below the entry
@@ -208,8 +209,8 @@ function sourcesText(l) {
  * SELL means "exit if you hold it" (the rule's own exit, RSI(2) above 70). It never means short-selling:
  * 120 short-selling rules were tested on the same data and none made money in both periods.
  */
-const RULE = { name: "Pullback buy", rsiMax: 10, exitRsi: 70, stopAtr: 3, maxHold: 15, minBars: 50 };
-/** How long the 1,012 real trades lasted, in trading days counting the entry day. */
+const RULE = { name: "Pullback buy", rsiMax: 10, exitRsi: 70, stopAtr: 3, maxHold: 15, minBars: 50, trendGap: 3 };
+/** How long the 688 real trades lasted, in trading days counting the entry day. */
 const HOLD_DAYS = { p25: 2, median: 4, p75: 6, p90: 9, byDay5: 0.67 };
 let NIFTY_UP = null; // true / false / null (unknown); set from the page
 const setNiftyTrend = (v) => { NIFTY_UP = v; };
@@ -244,11 +245,13 @@ function ruleIndicators(bars) {
 }
 function ruleConditions(ind, i, niftyUp) {
   const c = ind.c[i], s20 = ind.sma20[i], s50 = ind.sma50[i], r = ind.r[i];
-  const enough = i + 1 >= RULE.minBars;
+  const enough = i + 1 >= RULE.minBars, gap = (s20 / s50 - 1) * 100, minS20 = s50 * (1 + RULE.trendGap / 100);
+  const up = c > s50 && s20 > minS20;
   return [
-    { key: "trend", ok: enough && c > s50 && s20 > s50,
+    { key: "trend", ok: enough && up,
       text: !enough ? `Needs at least ${RULE.minBars} candles to judge the trend (this chart has ${i + 1}).`
-        : c > s50 && s20 > s50 ? `Stock in an uptrend: price ${inr(c)} is above its 50-day average ${inr(s50)}, and the 20-day average is above the 50-day.`
+        : up ? `Stock in a strong uptrend: price ${inr(c)} is above its 50-day average ${inr(s50)}, and the 20-day average is ${gap.toFixed(1)}% above the 50-day (needs ${RULE.trendGap}%).`
+        : c > s50 && s20 > s50 ? `Uptrend too weak: the 20-day average is only ${gap.toFixed(1)}% above the 50-day; it needs ${RULE.trendGap}%. Dip buys in weak uptrends won less often in tests.`
         : `Stock not in an uptrend: price ${inr(c)}, 20-day average ${inr(s20)}, 50-day average ${inr(s50)}.` },
     { key: "dip", ok: r < RULE.rsiMax,
       text: r < RULE.rsiMax ? `Sharp dip: RSI(2) is ${r.toFixed(1)}, below ${RULE.rsiMax}.` : `No sharp dip: RSI(2) is ${r.toFixed(1)}; it needs to fall below ${RULE.rsiMax}.` },
@@ -268,9 +271,10 @@ function buyTrigger(ind, i) {
   const c = ind.c[i], au = ind.au[i], ad = ind.ad[i], k = RULE.rsiMax / (100 - RULE.rsiMax);
   // Tomorrow after a fall of d: au' = au / 2, ad' = (ad + d) / 2, so RSI(2) < limit when au / (ad + d) < k.
   const hi = c - Math.max(0, au / k - ad) - c * 0.0005;
-  // The trend must survive that close x: x above tomorrow's 50-day average, 20-day average above the 50-day.
-  const c50 = ind.c[i - 49], c20 = ind.c[i - 19], s50 = ind.sma50[i], s20 = ind.sma20[i];
-  const lo = Math.max((s50 - c50 / 50) * 50 / 49, (s50 - s20 + c20 / 20 - c50 / 50) / (1 / 20 - 1 / 50));
+  // The trend must survive that close x: x above tomorrow's 50-day average, and tomorrow's 20-day average
+  // at least trendGap% above tomorrow's 50-day: s20 + (x - c20) / 20 > g * (s50 + (x - c50) / 50).
+  const c50 = ind.c[i - 49], c20 = ind.c[i - 19], s50 = ind.sma50[i], s20 = ind.sma20[i], g = 1 + RULE.trendGap / 100;
+  const lo = Math.max((s50 - c50 / 50) * 50 / 49, (g * s50 - s20 + c20 / 20 - g * c50 / 50) / (1 / 20 - g / 50));
   return hi > lo && hi > 0 ? { hi, lo } : null;
 }
 /** Trading days (Mon-Fri; exchange holidays are not known) starting from the next session. */

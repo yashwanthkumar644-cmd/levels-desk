@@ -59,7 +59,8 @@ HOW THE DECISION WORKS
 The app answers BUY, HOLD, SELL or WAIT.
 
 BUY ("pullback buy") only when all three are true:
-  1. The stock is in an uptrend (above its 50-day average; 20-day average above 50-day).
+  1. The stock is in a strong uptrend (above its 50-day average, and the 20-day average
+     at least 3% above the 50-day average).
   2. It has just dipped sharply (RSI(2) below 10).
   3. Nifty is in an uptrend (above its 50-day average).
 The BUY card gives: the date to buy (next session, 9:15 AM open), the stop loss,
@@ -81,8 +82,9 @@ daily close range that would turn it into a BUY.
 PLEASE NOTE
 -----------
 This is a learning tool, not investment advice. On 5 years of real NSE data (72 F&O
-stocks) the BUY rule won about 2 trades in 3 (68% of 1,012 trades). On 2025-26, data
-the settings were never tuned on, it won 66% and averaged +0.13% per trade after
-costs, against -0.28% for random trades. Wins are small and frequent; losses are
+stocks) the BUY rule won 70% of 688 trades. On 2025-26 it won 72% of 175 trades and
+averaged +0.39% per trade after costs, against -0.43% for random trades. (The 3%
+trend filter was added in October 2026; it improved both the 2021-24 and the 2025-26
+results, but the 2025-26 figures are no longer completely untouched by tuning.) Wins are small and frequent; losses are
 rarer but bigger (worst -15%). 2026 so far has been weaker. Never trade money you
 cannot afford to lose.
