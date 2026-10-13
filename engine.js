@@ -204,9 +204,13 @@ function sourcesText(l) {
  *   2. it has just dipped sharply: RSI(2) below 10
  *   3. the market is in an uptrend: Nifty above its 50-day average (set by the user or a Nifty screenshot)
  * Buy at the next open, sell when RSI(2) closes above 70, with a safety stop 3 ATR below the entry
- * and a 15-day time limit. No SELL rule held up on unseen data, so the app never says SELL.
+ * and a 15-day time limit.
+ * SELL means "exit if you hold it" (the rule's own exit, RSI(2) above 70). It never means short-selling:
+ * 120 short-selling rules were tested on the same data and none made money in both periods.
  */
 const RULE = { name: "Pullback buy", rsiMax: 10, exitRsi: 70, stopAtr: 3, maxHold: 15, minBars: 50 };
+/** How long the 1,012 real trades lasted, in trading days counting the entry day. */
+const HOLD_DAYS = { p25: 2, median: 4, p75: 6, p90: 9, byDay5: 0.67 };
 let NIFTY_UP = null; // true / false / null (unknown); set from the page
 const setNiftyTrend = (v) => { NIFTY_UP = v; };
 
@@ -255,6 +259,50 @@ function ruleConditions(ind, i, niftyUp) {
   ];
 }
 
+/**
+ * The close that would turn a WAIT into a BUY: low enough for RSI(2) to fall below the limit,
+ * but not so low that the uptrend breaks. Returns { hi, lo } (buy zone for the close) or null.
+ */
+function buyTrigger(ind, i) {
+  if (i + 1 < RULE.minBars || i < 49) return null;
+  const c = ind.c[i], au = ind.au[i], ad = ind.ad[i], k = RULE.rsiMax / (100 - RULE.rsiMax);
+  // Tomorrow after a fall of d: au' = au / 2, ad' = (ad + d) / 2, so RSI(2) < limit when au / (ad + d) < k.
+  const hi = c - Math.max(0, au / k - ad) - c * 0.0005;
+  // The trend must survive that close x: x above tomorrow's 50-day average, 20-day average above the 50-day.
+  const c50 = ind.c[i - 49], c20 = ind.c[i - 19], s50 = ind.sma50[i], s20 = ind.sma20[i];
+  const lo = Math.max((s50 - c50 / 50) * 50 / 49, (s50 - s20 + c20 / 20 - c50 / 50) / (1 / 20 - 1 / 50));
+  return hi > lo && hi > 0 ? { hi, lo } : null;
+}
+/** Trading days (Mon-Fri; exchange holidays are not known) starting from the next session. */
+function tradeTimeline(now = new Date()) {
+  const ist = new Date(now.getTime() + 330 * 60000); // shift to Indian time, read with UTC getters
+  const day = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()));
+  const beforeOpen = ist.getUTCHours() * 60 + ist.getUTCMinutes() < 9 * 60 + 15;
+  const isWeekday = (d) => d.getUTCDay() !== 0 && d.getUTCDay() !== 6;
+  const next = (d) => { const x = new Date(d.getTime() + 86400000); return isWeekday(x) ? x : next(x); };
+  const entry = beforeOpen && isWeekday(day) ? day : next(day);
+  const nth = (n) => { let d = entry; for (let k = 1; k < n; k++) d = next(d); return d; }; // n-th trading day, entry = 1
+  return { entry, typicalFrom: nth(HOLD_DAYS.p25), typicalTo: nth(5), last: nth(RULE.maxHold) };
+}
+/**
+ * A dip-buy signal earlier on this chart (Nifty is not known for past days, so it is not checked):
+ * SELL when that trade's exit happens on the last candle, HOLD while it is still open, otherwise null.
+ */
+function heldTrade(ctx, i, ind) {
+  if (i !== ctx.bars.length - 1) return null;
+  const all = backtest({ ...ctx, rule: ind }).trades, t = all[all.length - 1];
+  if (!t) return null;
+  const b = ctx.bars, n = b.length;
+  const entryIdx = b.findIndex((x) => x.t === t.t) + 1;
+  const daysIn = n - entryIdx; // trading days held including today
+  if (t.outcome === "open") {
+    return { state: "HOLD", entry: t.entry, stop: t.stop, sellAt: exitPrice(ind.c[i], ind.au[i], ind.ad[i]), daysIn, daysLeft: RULE.maxHold - daysIn };
+  }
+  if (t.exitT === b[n - 1].t) return { state: "SELL", entry: t.entry, stop: t.stop, why: t.outcome, exitPx: t.exitPx, daysIn, ret: t.ret };
+  return null;
+}
+const fmtDay = (d) => d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+
 function makePlan(ctx, i, levels, oc) {
   const b = ctx.bars, c = b[i].c;
   const ind = ctx.rule || ruleIndicators(b), atr = Math.max(ind.atr[i], c * 0.002);
@@ -267,9 +315,13 @@ function makePlan(ctx, i, levels, oc) {
   const buy = met === conditions.length;
   const entry = c, stop = c - RULE.stopAtr * atr, target = exitPrice(c, ind.au[i], ind.ad[i]);
   const rr = (target - entry) / (entry - stop);
+  const held = buy ? null : heldTrade(ctx, i, ind);
+  const side = buy ? "BUY" : held ? held.state : "WAIT";
+  const trigger = !buy && conditions[0].ok && !conditions[1].ok ? buyTrigger(ind, i) : null;
   return {
-    side: buy ? "BUY" : "WAIT", type: buy ? "market" : "", setup: buy ? RULE.name : "No trade",
+    side, type: buy ? "market" : "", setup: buy ? RULE.name : held ? (held.state === "SELL" ? "Exit the dip buy" : "Dip buy still open") : "No trade",
     entry: buy ? entry : NaN, stop: buy ? stop : NaN, target: buy ? target : NaN, rr: buy ? rr : NaN,
+    holdExit: target, trigger, held, timeline: buy ? tradeTimeline() : null,
     conditions, met, why: conditions.map((x) => x.text),
     waitReason: buy ? "" : conditions.filter((x) => !x.ok).map((x) => x.text).join(" "),
     trend: conditions[0].ok ? "up" : "not up", rsi2: ind.r[i], S, R, sP, rP, dS: (c - sP) / atr, dR: (rP - c) / atr, sup, res, atr,
@@ -318,9 +370,17 @@ function summarize(stock, ctx, p, bt) {
   s.push(`${stock.symbol} closed at ${inr(last.c)} on ${fmtDate(last.t, ctx.unit === "bar")}.`);
   if (p.side === "BUY") {
     s.push(`All conditions for a ${RULE.name.toLowerCase()} are met: the stock and the market are in uptrends, and the stock has just dipped sharply.`);
-    s.push(`Plan: buy near ${inr(p.entry)} at the next open. Sell on the bounce, usually within 2 to 5 days: around ${inr(p.target)}, which is the close that lifts RSI(2) above ${RULE.exitRsi}. Safety stop ${inr(p.stop)}. If neither happens, exit after ${RULE.maxHold} days.`);
+    const tl = p.timeline;
+    s.push(`Plan: buy near ${inr(p.entry)} at the open on ${fmtDay(tl.entry)} (9:15 AM). Stop loss ${inr(p.stop)}. Sell on the bounce: when a day closes around ${inr(p.target)} or higher (RSI(2) above ${RULE.exitRsi}), sell at that close. In past trades half were closed within ${HOLD_DAYS.median} trading days and two in three by ${fmtDay(tl.typicalTo)}. If neither the target nor the stop is hit, sell by ${fmtDay(tl.last)} at the latest.`);
+  } else if (p.side === "SELL") {
+    const h = p.held, why = { bounce: `the bounce has come (RSI(2) closed above ${RULE.exitRsi})`, stop: `the stop loss ${inr(h.stop)} was hit`, time: `the ${RULE.maxHold}-day limit is reached` }[h.why];
+    s.push(`Decision: SELL if you bought on the dip signal on this chart (entry about ${inr(h.entry)}, held ${h.daysIn} trading day${h.daysIn === 1 ? "" : "s"}): ${why}. Sell at today's close or the next open; that trade ${h.ret >= 0 ? "made" : "lost"} about ${Math.abs(h.ret * 100).toFixed(1)}%. If you don't hold it, do nothing: this is not a short-sell signal (short-selling lost money in tests).`);
+  } else if (p.side === "HOLD") {
+    const h = p.held;
+    s.push(`Decision: HOLD if you bought on the dip signal on this chart (entry about ${inr(h.entry)}, held ${h.daysIn} trading day${h.daysIn === 1 ? "" : "s"} so far). Sell when the next close is ${inr(h.sellAt)} or higher (check again each day: this price moves), if the price falls to the stop loss ${inr(h.stop)}, or at the latest in ${h.daysLeft} trading day${h.daysLeft === 1 ? "" : "s"}. If you don't hold it, don't buy now: the dip entry has passed.`);
   } else {
     s.push(`Decision: wait. ${p.waitReason}`);
+    if (p.trigger) s.push(`It becomes a BUY if a day closes between ${inr(p.trigger.lo)} and ${inr(p.trigger.hi)}${NIFTY_UP === true ? "" : " and Nifty is in an uptrend"}. Check again after that close.`);
   }
   s.push(p.S ? `Key support is ${inr(p.S.price)}, where ${sourcesText(p.S)} line up.` : "There is no strong support below; price is at fresh lows.");
   s.push(p.R ? `Key resistance is ${inr(p.R.price)}, from ${sourcesText(p.R)}.` : "There is no resistance overhead; price is at fresh highs.");

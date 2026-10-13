@@ -79,13 +79,14 @@ body.dragging .drop { border-color: var(--accent); color: var(--accent); backgro
 .chip.BUY { background: var(--up-soft); color: var(--up); }
 .chip.SELL { background: var(--down-soft); color: var(--down); }
 .chip.WAIT { background: var(--warn-soft); color: var(--warn); }
+.chip.HOLD { background: var(--up-soft); color: var(--accent); }
 
 .verdict { display: grid; gap: 16px; }
 .vhead { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .vhead .who h3 { font-family: var(--f-display); font-stretch: 112%; font-size: 26px; font-weight: 800; }
 .vhead .who p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
 .action { font-family: var(--f-display); font-stretch: 125%; font-weight: 800; font-size: 40px; line-height: 1; letter-spacing: -.01em; }
-.action.BUY { color: var(--up); } .action.SELL { color: var(--down); } .action.WAIT { color: var(--warn); }
+.action.BUY { color: var(--up); } .action.SELL { color: var(--down); } .action.WAIT { color: var(--warn); } .action.HOLD { color: var(--accent); }
 .action small { display: block; font-size: 13px; font-stretch: 100%; font-weight: 600; color: var(--muted); letter-spacing: 0; margin-top: 6px; text-align: right; }
 .summary { font-size: 16px; line-height: 1.6; max-width: 75ch; margin: 0; }
 .plan { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
@@ -413,14 +414,15 @@ function photoBars(candles) {
   }
   return candles.map((c, i) => ({ t: days[i], o: c.o, h: Math.max(c.h, c.o, c.c), l: Math.min(c.l, c.o, c.c), c: c.c, v: 0 }));
 }
-const CROWDED_TEXT = "The candles in this screenshot are very small, so the reading is less reliable and no BUY is given. Zoom in so about 50 to 100 candles fill the screen, then upload again.";
+const CROWDED_TEXT = "The candles in this screenshot are very small, so the reading is less reliable and no BUY or SELL is given. Zoom in so about 50 to 100 candles fill the screen, then upload again.";
 function photoStock(base, sym) {
   const last = base.bars[base.bars.length - 1];
   const crowded = (base.photo?.warnings || []).includes("crowded");
-  const plan = crowded && base.plan.side === "BUY"
-    ? { ...base.plan, side: "WAIT", type: "", setup: "No trade", entry: NaN, stop: NaN, target: NaN, rr: NaN, waitReason: CROWDED_TEXT }
+  const block = crowded && base.plan.side !== "WAIT";
+  const plan = block
+    ? { ...base.plan, side: "WAIT", type: "", setup: "No trade", entry: NaN, stop: NaN, target: NaN, rr: NaN, trigger: null, timeline: null, waitReason: CROWDED_TEXT }
     : base.plan;
-  const rest = crowded && base.plan.side === "BUY" ? [`Decision: wait. ${CROWDED_TEXT}`, ...base.summary.slice(3)] : base.summary.slice(1);
+  const rest = block ? [`Decision: wait. ${CROWDED_TEXT}`, ...base.summary.filter((l) => /^(Key |There is no |Option chain)/.test(l))] : base.summary.slice(1);
   const summary = [`${sym || "This chart"} last traded at ${inr(last.c)} in your screenshot (${base.bars.length} candles read).`, ...rest];
   return { ...base, plan, summary };
 }
@@ -491,14 +493,48 @@ function renderVerdict(st) {
     </div>
     <p class="summary">${st.summary.map(esc).join(" ")}</p>
     <ul class="checks" aria-label="Conditions for a pullback buy">${p.conditions.map((x) => `<li class="${x.ok ? "ok" : "no"}"><span aria-hidden="true">${x.ok ? "✓" : "✗"}</span><div>${esc(x.text)}</div></li>`).join("")}</ul>
-    <dl class="plan" style="margin:0">
-      ${cell("Buy at next open", inr(p.entry))}${cell("Safety stop", inr(p.stop))}${cell("Sell around", inr(p.target))}
-      ${cell("Reward : risk", isFinite(p.rr) ? p.rr.toFixed(1) + " : 1" : "–")}${cell("Support", inr(p.sP))}${cell("Resistance", inr(p.rP))}
-    </dl>
+    <dl class="plan" style="margin:0">${planCells(p, last)}</dl>
+    ${p.side === "BUY" ? tradeCard(st) : ""}
     ${st.note ? `<p class="note">${esc(st.note)}</p>` : ""}
-    <p class="note">BUY appears only when all three conditions hold; otherwise WAIT. On 5 years of real NSE data this rule won ${Math.round(RULE_STATS.all.win * 100)}% of ${RULE_STATS.all.n.toLocaleString("en-IN")} trades, but each gain is small, and on the unseen 2025–26 data it averaged ${RULE_STATS.test.avg >= 0 ? "+" : ""}${RULE_STATS.test.avg.toFixed(2)}% per trade. The app never says SELL: no sell rule held up in testing. Educational tool, not investment advice.</p>`;
+    <p class="note">BUY appears only when all three conditions hold. HOLD and SELL are for someone who bought an earlier dip signal on this chart; otherwise WAIT. On 5 years of real NSE data this rule won ${Math.round(RULE_STATS.all.win * 100)}% of ${RULE_STATS.all.n.toLocaleString("en-IN")} trades, but each gain is small, and on the unseen 2025–26 data it averaged ${RULE_STATS.test.avg >= 0 ? "+" : ""}${RULE_STATS.test.avg.toFixed(2)}% per trade. SELL means "sell a stock you already hold"; the app never tells you to short-sell, because none of 120 short-selling rules made money in tests. Educational tool, not investment advice.</p>`;
 }
 const cell = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`;
+function planCells(p, last) {
+  if (p.side === "BUY") {
+    const tl = p.timeline;
+    return cell(`Buy · ${fmtDay(tl.entry)} 9:15`, inr(p.entry)) + cell("Stop loss", inr(p.stop)) + cell("Target (sell at close)", inr(p.target))
+      + cell("Reward : risk", isFinite(p.rr) ? p.rr.toFixed(1) + " : 1" : "–") + cell("Usual exit", `${fmtDay(tl.typicalFrom)} – ${fmtDay(tl.typicalTo)}`)
+      + cell("Sell by (latest)", fmtDay(tl.last)) + cell("Support", inr(p.sP)) + cell("Resistance", inr(p.rP));
+  }
+  const h = p.held;
+  if (p.side === "SELL") {
+    return cell("Sell (if you hold)", inr(last.c)) + cell("When", "Today's close or next open") + cell("Bought at", inr(h.entry))
+      + cell("Result", `${h.ret >= 0 ? "+" : ""}${(h.ret * 100).toFixed(1)}%`) + cell("Short-sell?", "No") + cell("Support", inr(p.sP));
+  }
+  if (p.side === "HOLD") {
+    return cell("Bought at", inr(h.entry)) + cell("Stop loss", inr(h.stop)) + cell("Sell at next close ≥", inr(h.sellAt))
+      + cell("Days left", `${h.daysLeft} of ${RULE.maxHold}`) + cell("Support", inr(p.sP)) + cell("Resistance", inr(p.rP));
+  }
+  return cell("Buy zone (daily close)", p.trigger ? `${inr(p.trigger.lo)} – ${inr(p.trigger.hi)}` : "–")
+    + cell("Support", inr(p.sP)) + cell("Resistance", inr(p.rP));
+}
+const LOT_KEY = "levels-desk-lots";
+function lotFor(sym) { try { return Number(JSON.parse(localStorage.getItem(LOT_KEY) || "{}")[sym]) || 0; } catch { return 0; } }
+function saveLot(sym, n) {
+  try { const all = JSON.parse(localStorage.getItem(LOT_KEY) || "{}"); localStorage.setItem(LOT_KEY, JSON.stringify({ ...all, [sym]: n })); } catch { /* kept for this visit only */ }
+}
+function tradeCard(st) {
+  const p = st.plan, lot = st.lot || lotFor(st.symbol), tl = p.timeline;
+  const money = (x) => "₹" + Math.round(x).toLocaleString("en-IN");
+  const perLot = lot > 0
+    ? `<p class="summary" style="margin:0">With 1 lot of ${lot.toLocaleString("en-IN")} shares: risk about <b class="loss">${money((p.entry - p.stop) * lot)}</b> if the stop is hit, gain about <b class="win">${money((p.target - p.entry) * lot)}</b> at the target (before charges). Futures need margin; options cost the premium.</p>`
+    : `<p class="note" style="margin:0;border:0;padding:0">Type the F&amp;O lot size to see the money at risk and the gain per lot.</p>`;
+  return `<div class="banner" style="margin:0;display:grid;gap:8px">
+    <label style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">F&amp;O lot size <input type="number" id="lotSize" min="1" step="1" inputmode="numeric" value="${lot || ""}" placeholder="e.g. 500" style="width:8em;padding:4px 8px" data-sym="${esc(st.symbol)}"></label>
+    ${perLot}
+    <p style="margin:0"><b>Futures:</b> buy at the ${fmtDay(tl.entry)} open and place a stop-loss order at ${inr(p.stop)}. <b>Options:</b> buy a call with an expiry after ${fmtDay(tl.last)}; watch the <i>stock</i> price and exit the option when the stock closes at ${inr(p.target)} or more, or falls to ${inr(p.stop)}.</p>
+  </div>`;
+}
 function photoBanner(st) {
   const crowded = (st.photo.warnings || []).includes("crowded");
   return `${crowded ? `<div class="banner" style="margin:0">${esc(CROWDED_TEXT)}</div>` : ""}<div class="banner photobar">Read from your screenshot on this phone. Check the rebuilt chart below against your own chart.
@@ -534,7 +570,7 @@ function renderChart(st) {
   const p = st.plan;
   p.res.slice(0, 4).forEach((l, n) => cs.createPriceLine({ price: l.price, color: T.down, lineWidth: stars(l.score) >= 3 ? 2 : 1, lineStyle: n === 0 ? 0 : 2, axisLabelVisible: true, title: `R${n + 1}` }));
   p.sup.slice(0, 4).forEach((l, n) => cs.createPriceLine({ price: l.price, color: T.up, lineWidth: stars(l.score) >= 3 ? 2 : 1, lineStyle: n === 0 ? 0 : 2, axisLabelVisible: true, title: `S${n + 1}` }));
-  if (p.side !== "WAIT") {
+  if (p.side === "BUY") {
     cs.createPriceLine({ price: p.stop, color: T.muted, lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: "Stop" });
     cs.createPriceLine({ price: p.target, color: T.accent, lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: "Target" });
   }
@@ -624,7 +660,17 @@ $("#fileShot2").addEventListener("change", (e) => { if (e.target.files[0]) handl
 $("#shotStop").addEventListener("click", () => { shotCtl?.abort(); shotCtl = null; $("#shotStatus").hidden = true; });
 document.querySelectorAll("[data-nifty]").forEach((b) => b.addEventListener("click", () => setNifty(b.dataset.nifty === "up", "manual")));
 syncNifty(loadNifty());
-$("#verdict").addEventListener("change", (e) => { if (e.target.id === "photoSym") renamePhoto(+e.target.dataset.i, e.target.value); });
+$("#verdict").addEventListener("change", (e) => {
+  if (e.target.id === "photoSym") renamePhoto(+e.target.dataset.i, e.target.value);
+  if (e.target.id === "lotSize") {
+    const n = Math.floor(Number(e.target.value));
+    if (!(n > 0 && n <= 1e6)) return;
+    const sym = e.target.dataset.sym;
+    saveLot(sym, n);
+    state.stocks = state.stocks.map((x) => (x.symbol === sym ? { ...x, lot: n } : x));
+    render();
+  }
+});
 window.addEventListener("paste", (e) => {
   const img = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith("image/"));
   if (img) { e.preventDefault(); handleShot(img); }

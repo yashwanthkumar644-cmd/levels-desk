@@ -1,5 +1,5 @@
 /* Offline support: keeps the app and its text reader on the phone after the first visit. */
-const CACHE = "levels-desk-v4";
+const CACHE = "levels-desk-v5";
 const FILES = [
   "./", "index.html", "engine.js", "reader.js", "manifest.webmanifest", "icon-192.png", "icon-512.png",
   "vendor/lightweight-charts.js", "vendor/tesseract.min.js", "vendor/worker.min.js",

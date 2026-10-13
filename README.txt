@@ -33,7 +33,7 @@ EVERY DAY
 2. Take a screenshot of a stock chart in your trading app (Kite, Upstox, TradingView...).
    Show about 50 to 100 candles.
 3. Open Levels Desk, tap "Upload a chart photo" and pick the screenshot.
-4. In 5 to 15 seconds you see BUY or WAIT, the three conditions with ticks or crosses,
+4. In 5 to 15 seconds you see BUY, HOLD, SELL or WAIT with dates, stop loss and target, the three conditions with ticks or crosses,
    the plan, the levels and a rebuilt chart to compare with yours.
 
 
@@ -56,14 +56,26 @@ The app starts empty; "Try made-up example" only shows invented prices for pract
 
 HOW THE DECISION WORKS
 ----------------------
+The app answers BUY, HOLD, SELL or WAIT.
+
 BUY ("pullback buy") only when all three are true:
   1. The stock is in an uptrend (above its 50-day average; 20-day average above 50-day).
   2. It has just dipped sharply (RSI(2) below 10).
   3. Nifty is in an uptrend (above its 50-day average).
-Then: buy at the next open, sell on the bounce (usually 2 to 5 days, around the
-"Sell around" price), safety stop 3x the daily range below entry, exit after 15 days
-if nothing happens. Otherwise the app says WAIT. It never says SELL: no sell rule
-held up in testing.
+The BUY card gives: the date to buy (next session, 9:15 AM open), the stop loss,
+the target (sell at the first close at or above it), the usual exit dates (half of
+past trades closed within 4 trading days, two in three within 5), and the last date
+to sell (15 trading days). Type the F&O lot size to see the rupees at risk and the
+gain per lot, plus futures and options steps. Dates skip weekends but not exchange
+holidays.
+
+HOLD: a dip BUY happened earlier on this chart and is still open. Shows the entry,
+stop loss, the close to sell at, and the days left.
+SELL: that dip BUY reaches its exit today (bounce, stop loss or 15-day limit).
+SELL means sell what you hold. It never means short-sell: 120 short-selling rules
+were tested on the same 5 years of data and none made money.
+WAIT: no trade. If the stock is in an uptrend, the app shows the "buy zone": the
+daily close range that would turn it into a BUY.
 
 
 PLEASE NOTE
