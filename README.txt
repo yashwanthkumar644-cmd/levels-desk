@@ -39,7 +39,12 @@ EVERY DAY
 
 FOR A GOOD READING
 ------------------
-- A candlestick chart with the normal green and red colours (not a line chart).
+- A candlestick chart with the normal green and red colours. Not a line, area or bar chart,
+  and not Heikin-Ashi (its candles show averaged prices; the app refuses it).
+- Works with screenshots from Kite, Groww, Upstox, Angel One, Dhan, TradingView, Fyers,
+  5paisa, Paytm Money and similar apps, light or dark mode, portrait or landscape, and
+  screenshots forwarded on WhatsApp. Send the original screenshot when possible: shrunk
+  or blurry images are refused more often.
 - The price numbers on the right side of the chart must be in the screenshot.
 - About 50 to 100 candles on screen. If the candles look tiny, zoom in first.
 - If the stock name isn't picked up, type it in the "Symbol" box on the result.

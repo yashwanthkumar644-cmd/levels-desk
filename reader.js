@@ -5,6 +5,8 @@
 (() => {
   "use strict";
   const MIN_AXIS_LABELS = 4;
+  const BLURRED_THOUSANDS = /^\d{1,3}\.\d{3}$/;
+  const MIN_STRICT_LABELS = 3; // enough only when they pass strictScale (zoomed-in charts often show just 3-4 labels)
   const MAX_SIDE = 2400; // larger screenshots are scaled down first
   const OCR_SCALE = 2; // small axis text reads far better when enlarged
   let base = "";
@@ -120,10 +122,60 @@
     if (!/^[\d,]*\.?\d+$/.test(t)) return [];
     const v = parseFloat(t.replace(/,/g, ""));
     if (!(v > 0)) return [];
+    // "6.000": stock price labels never show three decimals, so this is "6,000" with the comma blurred into
+    // a point (common in shrunk or compressed screenshots). It is not trusted as an exact reading either way.
+    if (BLURRED_THOUSANDS.test(t)) return [v * 1000, v];
     return t.includes(".") ? [v] : [v, v / 10, v / 100];
   }
 
   // ---------- price axis ----------
+  /**
+   * Three labels are trusted only if they are read exactly as printed, are round steps of one size
+   * (like 1,200 / 1,300 / 1,400) and lie within 1.5 px of a straight scale. Misreadings rarely do all three.
+   */
+  function strictScale(points) {
+    if (points.some((p) => p[3] !== 1)) return false;
+    const vals = [...new Set(points.map((p) => p[1]))].sort((a, b) => a - b);
+    if (vals.length < 3) return false;
+    const step = Math.min(...vals.slice(1).map((v, i) => v - vals[i]));
+    const whole = (x) => Math.abs(x - Math.round(x)) < 1e-6;
+    if (!(step > 0) || !vals.every((v) => whole(v / step) && whole((v - vals[0]) / step))) return false;
+    const [slope, intercept] = fit(points.map((p) => [p[0], p[1]]));
+    return points.every((p) => Math.abs(p[1] - (intercept + slope * p[0])) / Math.abs(slope) <= 1.5);
+  }
+
+  /** The same printed label is often seen by two reading passes; keep the more confident copy. */
+  function dedupeWords(words) {
+    const sorted = [...words].sort((a, b) => b.conf - a.conf), kept = [];
+    for (const w of sorted) {
+      const cy = w.y + w.h / 2;
+      const dup = kept.some((k) => Math.abs(k.y + k.h / 2 - cy) < Math.max(k.h, w.h) / 2 && w.x < k.x + k.w && k.x < w.x + w.w);
+      if (!dup) kept.push(w);
+    }
+    return kept;
+  }
+
+  /**
+   * Cross-check the scale with numbers that are not scale labels, like the last-price tag: each sits at the
+   * height of its own price. A scale read with a wrong digit (every label off by the same amount) still
+   * looks straight, but these numbers then disagree with it.
+   */
+  function axisCrossCheck(words, axis) {
+    const inlier = (w) => axis.labels.some((l) => l.text === w.text && Math.abs(l.y - (w.y + w.h / 2)) < 4);
+    const xMax = axis.xLeft + 1.6 * axis.labelW; // the price column only, not a watchlist beside it
+    let agree = 0, disagree = 0;
+    const odd = [];
+    for (const w of dedupeWords(words)) {
+      if (w.conf < 70 || w.x < axis.xLeft - axis.labelH || w.x > xMax || inlier(w)) continue;
+      if ((w.text.match(/\d/g) || []).length < 3) continue;
+      const vals = parseNumber(w.text);
+      if (!vals.length) continue;
+      const expected = axis.price(w.y + w.h / 2), tol = Math.abs(axis.slope) * Math.max(w.h, 6);
+      if (vals.some((v) => Math.abs(v - expected) <= tol)) agree++;
+      else if (Math.abs(vals[0] - expected) > 0.03 * Math.abs(expected)) { disagree++; odd.push(`${w.text}@${Math.round(expected)}`); }
+    }
+    return { agree, disagree, odd };
+  }
   function fit(points) {
     const n = points.length;
     let sx = 0, sy = 0, sxx = 0, sxy = 0;
@@ -136,13 +188,14 @@
     let best = [];
     for (let i = 0; i < points.length; i++) {
       for (let j = i + 1; j < points.length; j++) {
-        const [y1, p1, a] = points[i], [y2, p2, b] = points[j];
-        if (a === b || Math.abs(y2 - y1) < 5) continue;
+        const [y1, p1, a, , f1] = points[i], [y2, p2, b, , f2] = points[j];
+        if (a === b || f1 !== f2 || Math.abs(y2 - y1) < 5) continue;
         const slope = (p2 - p1) / (y2 - y1);
         if (slope >= 0) continue;
         const tol = Math.abs(slope) * 3; // within about 3 px
         const chosen = new Map();
         for (const pt of points) {
+          if (pt[4] !== f1) continue;
           const err = Math.abs(p1 + slope * (pt[0] - y1) - pt[1]);
           const prev = chosen.get(pt[2]);
           if (err <= tol && (!prev || err < prev.err)) chosen.set(pt[2], { pt, err });
@@ -156,15 +209,20 @@
   }
 
   function findAxis(words, width) {
-    const nums = words.map((w) => [w, parseNumber(w.text)]).filter(([w, v]) => v.length && w.x > width * 0.5);
+    const nums = dedupeWords(words).map((w) => [w, parseNumber(w.text)]).filter(([w, v]) => v.length && w.x > width * 0.5);
     let best = null;
     for (const [anchor] of nums) {
       const column = nums.filter(([w]) => w.x <= anchor.x + anchor.w + 6 && w.x + w.w >= anchor.x - 6);
-      if (column.length < MIN_AXIS_LABELS) continue;
+      if (column.length < MIN_STRICT_LABELS) continue;
       const points = [];
-      column.forEach(([w, vals], k) => vals.forEach((v, n) => points.push([w.y + w.h / 2, v, k, n === 0 ? 1 : 0])));
+      // The last field is the scale factor of a reading (1, or 1/10 and 1/100 for a dropped decimal point):
+      // a real misreading shifts every label by the same factor, so one scale never mixes factors.
+      column.forEach(([w, vals], k) => {
+        const guessed = BLURRED_THOUSANDS.test(w.text.trim()); // "3.000" read for "3,000": usable, but not exact
+        vals.forEach((v, n) => points.push([w.y + w.h / 2, v, k, n === 0 && !guessed ? 1 : 0, Math.min(1, v / vals[0])]));
+      });
       const inliers = ransacInliers(points);
-      if (inliers.length < MIN_AXIS_LABELS) continue;
+      if (inliers.length < MIN_STRICT_LABELS || (inliers.length < MIN_AXIS_LABELS && !strictScale(inliers))) continue;
       // More labels first; then readings that use the numbers exactly as written; then the right-most column.
       const score = [inliers.length, inliers.reduce((a, p) => a + p[3], 0), anchor.x / width];
       if (!best || score[0] > best.score[0] || (score[0] === best.score[0] && (score[1] > best.score[1] || (score[1] === best.score[1] && score[2] > best.score[2])))) {
@@ -185,6 +243,9 @@
       price: (y) => intercept + slope * y,
       // How far the worst price label sits off the straight scale, in pixels (a real axis is ~0-2 px).
       errPx: Math.max(...pts.map(([y, p]) => Math.abs(p - (intercept + slope * y)) / Math.abs(slope))),
+      labels: best.cols.map(([w, v]) => ({ text: w.text, value: v, y: Math.round(w.y + w.h / 2) })), // for checking a reading
+      labelH: median(best.cols.map(([w]) => w.h)),
+      labelW: Math.max(...best.cols.map(([w]) => w.x + w.w)) - Math.min(...best.cols.map(([w]) => w.x)),
     };
   }
 
@@ -495,26 +556,37 @@
   }
 
   /** Checks that what was read looks like a real candlestick chart, so an unclear image can't produce a decision. */
-  function assessQuality(candles, axis) {
+  function assessQuality(candles, axis, cross = { agree: 0, disagree: 0 }) {
     const n = candles.length, period = candles[0].sp;
     const medRange = median(candles.map((c) => c.h - c.l)) || 1e-9;
-    let jumps = 0;
-    for (let i = 1; i < n; i++) if (Math.abs(candles[i].o - candles[i - 1].c) > 1.5 * medRange) jumps++;
+    let jumps = 0, haEligible = 0, haHits = 0;
+    for (let i = 1; i < n; i++) {
+      const p = candles[i - 1], o = candles[i].o, body = Math.abs(p.c - p.o);
+      if (Math.abs(o - p.c) > 1.5 * medRange) jumps++;
+      // Heikin-Ashi candles open at the middle of the previous body; real candles open near the previous close.
+      if (body >= 0.4 * medRange) {
+        haEligible++;
+        if (Math.abs(o - (p.o + p.c) / 2) < 0.15 * body) haHits++;
+      }
+    }
     const q = {
       bodyPct: candles.filter((c) => c.bw >= 3).length / n,
       wickPct: candles.filter((c) => c.wick).length / n,
       greenPct: candles.filter((c) => c.bull).length / n,
       jumpPct: jumps / (n - 1),
+      haPct: haEligible >= 10 ? haHits / haEligible : 0,
       axisErrPx: axis.errPx,
+      axisCheck: cross,
       spacing: period,
     };
     const issues = [], warnings = [];
     if (period < 5) warnings.push("crowded");
-    if (q.axisErrPx > 3) issues.push("axis");
+    if (q.axisErrPx > 3 || (cross.disagree >= 2 && cross.disagree > cross.agree)) issues.push("axis");
     if (period >= 5 && q.bodyPct < 0.6) issues.push("no_bodies");
     if (q.wickPct < 0.3) issues.push("no_wicks");
     if (q.greenPct < 0.15 || q.greenPct > 0.85) issues.push("one_colour");
     if (q.jumpPct > 0.25) issues.push("jumpy");
+    if (q.haPct > 0.6) issues.push("heikin_ashi");
     return { ...q, issues, warnings, ok: issues.length === 0 };
   }
 
@@ -527,7 +599,14 @@
     onProgress && onProgress({ status: "reading price scale" });
     const axisWords = await readAxisColumn(canvas, allWords, onProgress);
     let axis;
-    try { axis = findAxis(axisWords, width); } catch { axis = findAxis([...allWords, ...axisWords], width); }
+    try { axis = findAxis(axisWords, width); } catch {
+      try { axis = findAxis([...allWords, ...axisWords], width); } catch (e) {
+        // Keep what was read on the price side, so a failed reading can be looked into.
+        e.seen = dedupeWords([...allWords, ...axisWords]).filter((w) => w.x > width * 0.5 && parseNumber(w.text).length)
+          .map((w) => ({ text: w.text, conf: Math.round(w.conf), x: Math.round(w.x), y: Math.round(w.y + w.h / 2) }));
+        throw e;
+      }
+    }
     onProgress && onProgress({ status: "finding candles" });
     const img = canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, width, height);
     // Mask confident, text-like words only: the engine also "reads" short junk off candles, and masking
@@ -554,10 +633,11 @@
     if (candles.length < 30) throw new ReadError("too_few_candles", `found ${candles.length} candles`);
     const round = (v) => Math.round(v * 100) / 100;
     return {
-      quality: assessQuality(candles, axis),
+      quality: assessQuality(candles, axis, axisCrossCheck([...allWords, ...axisWords], axis)),
       symbol: findSymbol(allWords, new Set(knownSymbols || [])),
       candles: candles.map((c) => ({ x: c.x, o: round(c.o), h: round(c.h), l: round(c.l), c: round(c.c), bull: c.bull })),
       size: [width, height],
+      axisLabels: axis.labels,
     };
   }
 

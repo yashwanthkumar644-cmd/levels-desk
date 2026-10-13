@@ -345,11 +345,12 @@ const PHOTO_ERRORS = {
   unreliable: "Couldn't read this chart reliably, so no decision is shown.",
 };
 const QUALITY_TEXT = {
-  axis: "the price numbers on the right didn't line up on a straight scale",
+  axis: "the price numbers on the right couldn't be read reliably (they don't agree with each other or with the price tag). Make sure they are sharp and not cut off",
   no_bodies: "the shapes don't have candle bodies (line and bar charts can't be read)",
   no_wicks: "most shapes have no wicks, so they don't look like candles",
   one_colour: "almost all candles came out the same colour",
   jumpy: "the candles read don't join up the way real prices do",
+  heikin_ashi: "this looks like a Heikin-Ashi chart, whose candles show averaged prices, not real ones. In your trading app, change the chart type to normal Candles and take the screenshot again",
 };
 const photoError = (e) => {
   if (e?.code === "unreliable") {
